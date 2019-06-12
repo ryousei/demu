@@ -49,7 +49,7 @@ GRUB_CMDLINE_LINUX="isolcpus=2-7"
 DEMU relies on DPDK, and you should build DPDK from the source code. You can find the detail instruction in the getting started guide at the DPDK web page.
 
 ```shell
-$ git clone git@bitbucket.org:hirofuchi/aist-intern-aketa.git
+$ git clone git@github.com:ryousei/demu.git
 $ cd demu
 $ git submodule update --init
 $ cd dpdk
