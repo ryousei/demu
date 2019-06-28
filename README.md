@@ -60,7 +60,7 @@ $ export RTE_SDK=$PWD
 #### DEMU
 
 ```shell
-$ cd ../src
+$ cd ..
 $ make
 ```
 
