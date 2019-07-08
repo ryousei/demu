@@ -5,7 +5,7 @@ Copyright (c) 2017-2019 National Institute of Advanced Industrial Science and Te
 ## Overview
 DEMU is a software-based network emulator implemented as a DPDK application. Conventional software-based emulator such as NetEm and dummynet have problems on the throughput of packet forwarding and the accuracy of emulation. DEMU addresses this problem by using a high-performance user-land network framework, i.e., DPDK, and it can emulate latencies on the order of 10ms for short-packet traffic at the 10GbE line rate with high accuracy. 
 
-DEMU is released under the BSD-3-Clause lisense.
+DEMU is released under the BSD-3-Clause license.
 
 ### Features
 
