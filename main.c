@@ -49,6 +49,9 @@
 #include <signal.h>
 #include <stdbool.h>
 
+//For Bandwidth Limitation
+#include <unistd.h>
+
 /*
  * RTE_LIBRTE_RING_DEBUG generates statistics of ring buffers. However, SEGV is occurred. (v16.07）
  * #define RTE_LIBRTE_RING_DEBUG
@@ -311,44 +314,24 @@ demu_rx_loop(unsigned portid)
 
 		if (likely(nb_rx == 0))
 			continue;
-		//If there is any packet, PKT_CNT increase
-		else
-			pkt_cnt += nb_rx;
 
 #ifdef DEBUG
 		port_statistics[portid].rx += nb_rx;
 #endif
 		
-		//printf("Total packets pass = %d\n", pkt_cnt);
-		//printf("There are %d packets in buffer\n", nb_rx);
 		cnt = 0;
 		crc_cnt = 0;
 		for (i = 0; i < nb_rx; i++) {
-			//Insert the CRC_Error flag every 2 packets
-			if (pkt_cnt % 2 == 0) {
-				//printf("Packet %d is discarded\n", i);
-				//printf("----------------------\n");
-				pkts_burst[i]->ol_flags |= PKT_TX_NO_CRC_CSUM;
-				crc_cnt++;
-				continue;
-			}
 			
-
 			if (portid == 0 && loss_event()) {
 				port_statistics[portid].discarded++;
 				cnt++;
 				continue;
 			}
 			
-			//Copy the code and modify
-			rx2w_buffer[i - cnt - crc_cnt] = pkts_burst[i];
-			rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[i - cnt - crc_cnt], void *));
-			rx2w_buffer[i - cnt - crc_cnt]->udata64 = rte_rdtsc();
-
-			//TEMPORARY CLOSE
-			//rx2w_buffer[i - cnt] = pkts_burst[i];
-			//rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[i - cnt], void *));
-			//rx2w_buffer[i - cnt]->udata64 = rte_rdtsc();
+			rx2w_buffer[i - cnt] = pkts_burst[i];
+			rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[i - cnt], void *));
+			rx2w_buffer[i - cnt]->udata64 = rte_rdtsc();
 
 #ifdef DEBUG_RX
 			if (rx_cnt < RX_STAT_BUF_SIZE) {
@@ -359,33 +342,13 @@ demu_rx_loop(unsigned portid)
 
 		}
 
-		//Copy the code and modify
 		if (portid == 0)
 			numenq = rte_ring_sp_enqueue_burst(rx_to_workers,
-					(void *)rx2w_buffer, nb_rx - cnt - crc_cnt, NULL);
+					(void *)rx2w_buffer, nb_rx - cnt, NULL);
 		else
 			numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
-					(void *)rx2w_buffer, nb_rx - cnt - crc_cnt, NULL);
+					(void *)rx2w_buffer, nb_rx - cnt, NULL);
 		
-		//TEMPORARY CLOSE
-		//if (portid == 0)
-		//	numenq = rte_ring_sp_enqueue_burst(rx_to_workers,
-		//			(void *)rx2w_buffer, nb_rx - cnt, NULL);
-		//else
-		//	numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
-		//			(void *)rx2w_buffer, nb_rx - cnt, NULL);
-
-		//Copy the code and modify
-		if (unlikely(numenq < (unsigned)(nb_rx - cnt - crc_cnt))) {
-#ifdef DEBUG
-			port_statistics[portid].rx_worker_dropped += (nb_rx - cnt - crc_cnt - numenq);
-			printf("Delayed Queue Overflow count:%" PRIu64 "\n",
-					port_statistics[portid].queue_dropped);
-#endif
-			pktmbuf_free_bulk(&pkts_burst[numenq], nb_rx - cnt - crc_cnt - numenq);
-		}
-
-		/* TEMPORARY CLOSE		
 		if (unlikely(numenq < (unsigned)(nb_rx - cnt))) {
 #ifdef DEBUG
 			port_statistics[portid].rx_worker_dropped += (nb_rx - cnt - numenq);
@@ -394,7 +357,6 @@ demu_rx_loop(unsigned portid)
 #endif
 			pktmbuf_free_bulk(&pkts_burst[numenq], nb_rx - cnt - numenq);
 		}
-		*/
 	}
 }
 
