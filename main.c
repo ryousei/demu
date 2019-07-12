@@ -301,7 +301,7 @@ demu_rx_loop(unsigned portid)
 	unsigned lcore_id;
 
 	unsigned nb_rx, i;
-	int cnt, crc_cnt, pkt_cnt = 0;
+	int cnt;
 	uint32_t numenq;
 
 	lcore_id = rte_lcore_id();
@@ -320,7 +320,6 @@ demu_rx_loop(unsigned portid)
 #endif
 		
 		cnt = 0;
-		crc_cnt = 0;
 		for (i = 0; i < nb_rx; i++) {
 			
 			if (portid == 0 && loss_event()) {
