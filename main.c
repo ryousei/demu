@@ -85,6 +85,7 @@ static bool loss_event(void);
 static bool loss_event_random(uint64_t loss_rate);
 static bool loss_event_GE(uint64_t loss_rate_n, uint64_t loss_rate_a, uint64_t st_ch_rate_no2ab, uint64_t st_ch_rate_ab2no);
 static bool loss_event_4state( uint64_t p13, uint64_t p14, uint64_t p23, uint64_t p31, uint64_t p32);
+static bool dup_event(void);
 #define RANDOM_MAX 1000000000
 
 static volatile bool force_quit;
@@ -172,6 +173,8 @@ static uint64_t loss_percent_1 = 0;
 static uint64_t loss_percent_2 = 0;
 // static uint64_t change_percent_1 = 0;
 // static uint64_t change_percent_2 = 0;
+
+static uint64_t dup_rate = 0;
 
 static const struct rte_eth_conf port_conf = {
 	.rxmode = {
@@ -298,7 +301,8 @@ demu_rx_loop(unsigned portid)
 	unsigned lcore_id;
 
 	unsigned nb_rx, i;
-	int cnt;
+	unsigned nb_loss;
+	unsigned nb_dup;
 	uint32_t numenq;
 
 	lcore_id = rte_lcore_id();
@@ -315,18 +319,29 @@ demu_rx_loop(unsigned portid)
 #ifdef DEBUG
 		port_statistics[portid].rx += nb_rx;
 #endif
-		cnt = 0;
+		nb_loss = 0;
+		nb_dup = 0;
 		for (i = 0; i < nb_rx; i++) {
+			struct rte_mbuf *clone;
 
 			if (portid == 0 && loss_event()) {
 				port_statistics[portid].discarded++;
-				cnt++;
+				nb_loss++;
 				continue;
 			}
 
-			rx2w_buffer[i - cnt] = pkts_burst[i];
-			rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[i - cnt], void *));
-			rx2w_buffer[i - cnt]->udata64 = rte_rdtsc();
+			rx2w_buffer[i - nb_loss + nb_dup] = pkts_burst[i];
+			rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[i - nb_loss + nb_dup], void *));
+			rx2w_buffer[i - nb_loss + nb_dup]->udata64 = rte_rdtsc();
+
+			/* FIXME: we do not check the buffer overrun of rx2w_buffer. */
+			if (portid == 0 && dup_event()) {
+				clone = rte_pktmbuf_clone(rx2w_buffer[i - nb_loss + nb_dup], demu_pktmbuf_pool);
+				if (clone == NULL)
+					RTE_LOG(ERR, DEMU, "cannot clone a packet\n");
+				nb_dup++;
+				rx2w_buffer[i - nb_loss + nb_dup] = clone;
+			}
 
 #ifdef DEBUG_RX
 			if (rx_cnt < RX_STAT_BUF_SIZE) {
@@ -339,19 +354,19 @@ demu_rx_loop(unsigned portid)
 
 		if (portid == 0)
 			numenq = rte_ring_sp_enqueue_burst(rx_to_workers,
-					(void *)rx2w_buffer, nb_rx - cnt, NULL);
+					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
 		else
 			numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
-					(void *)rx2w_buffer, nb_rx - cnt, NULL);
+					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
 
 
-		if (unlikely(numenq < (unsigned)(nb_rx - cnt))) {
+		if (unlikely(numenq < (unsigned)(nb_rx - nb_loss + nb_dup))) {
 #ifdef DEBUG
-			port_statistics[portid].rx_worker_dropped += (nb_rx - cnt - numenq);
+			port_statistics[portid].rx_worker_dropped += (nb_rx - nb_loss + nb_dup - numenq);
 			printf("Delayed Queue Overflow count:%" PRIu64 "\n",
 					port_statistics[portid].queue_dropped);
 #endif
-			pktmbuf_free_bulk(&pkts_burst[numenq], nb_rx - cnt - numenq);
+			pktmbuf_free_bulk(&pkts_burst[numenq], nb_rx - nb_loss + nb_dup - numenq);
 		}
 	}
 }
@@ -437,7 +452,8 @@ demu_usage(const char *prgname)
 	printf("%s [EAL options] -- -d Delayed time [us] (default is 0s)\n"
 		" -p PORTMASK: HEXADECIMAL bitmask of ports to configure\n"
 		" -r random packet loss %% (default is 0%%)\n"
-		" -g XXX\n",
+		" -g XXX\n"
+		" -D duplicate packet rate\n",
 		prgname);
 }
 
@@ -486,7 +502,7 @@ demu_parse_args(int argc, char **argv)
 
 	argvopt = argv;
 
-	while ((opt = getopt_long(argc, argvopt, "d:p:r:g:",
+	while ((opt = getopt_long(argc, argvopt, "d:p:r:g:D:",
 					longopts, &longindex)) != EOF) {
 
 		switch (opt) {
@@ -520,6 +536,16 @@ demu_parse_args(int argc, char **argv)
 			case 'g':
 				loss_percent_2 = loss_random(optarg);
 				loss_mode = LOSS_MODE_GE;
+				if (loss_random(optarg) <= 0) {
+					printf("invalid loss rate\n");
+					demu_usage(prgname);
+					return -1;
+				}
+				break;
+
+			/* duplicate packet */
+			case 'D':
+				dup_rate = loss_random(optarg);
 				if (loss_random(optarg) <= 0) {
 					printf("invalid loss rate\n");
 					demu_usage(prgname);
@@ -965,4 +991,13 @@ loss_event_4state( uint64_t p13, uint64_t p14, uint64_t p23, uint64_t p31, uint6
 	}
 
 	return flag;
+}
+
+static bool
+dup_event(void)
+{
+	if (unlikely(loss_event_random(dup_rate) == true))
+		return true;
+	else
+		return false;
 }
