@@ -265,7 +265,6 @@ demu_tx_loop(unsigned portid)
 		else
 			cring = &workers_to_tx2;
 
-		usleep(2000);
 		numdeq = rte_ring_sc_dequeue_burst(*cring,
 				(void *)send_buf, PKT_BURST_TX, NULL);
 
