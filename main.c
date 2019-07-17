@@ -401,12 +401,13 @@ worker_thread(unsigned portid)
 			/* Add a given delay when a packet comes from the port 0.
 			 * TODO: fix this implementation.
 			 */
-			if (portid == 0 && diff_tsc >= delayed_time) {
-				rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
-				rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
-				i++;
-			}
-			else if (portid == 1) {
+			if (portid == 0) {
+				if (diff_tsc >= delayed_time) {
+					rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
+					rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
+					i++;
+				}
+			} else {
 				rte_ring_sp_enqueue(workers_to_tx, burst_buffer[i]);
 				i++; 
 			}
