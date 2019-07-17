@@ -51,6 +51,8 @@
 
 //For Bandwidth Limitation
 #include <unistd.h>
+#include <time.h>
+#include <sys/time.h>
 
 /*
  * RTE_LIBRTE_RING_DEBUG generates statistics of ring buffers. However, SEGV is occurred. (v16.07）
@@ -93,6 +95,7 @@ static bool loss_event_4state( uint64_t p13, uint64_t p14, uint64_t p23, uint64_
 static volatile bool force_quit;
 
 #define RTE_LOGTYPE_DEMU RTE_LOGTYPE_USER1
+#define RTE_LOGTYPE_DREAM RTE_LOGTYPE_USER2
 
 /*
  * Configurable number of RX/TX ring descriptors
@@ -251,8 +254,7 @@ demu_tx_loop(unsigned portid)
 	unsigned lcore_id;
 	uint32_t numdeq = 0;
 	uint16_t sent;
-
-
+	
 	lcore_id = rte_lcore_id();
 
 	RTE_LOG(INFO, DEMU, "entering main tx loop on lcore %u portid %u\n", lcore_id, portid);
@@ -262,7 +264,8 @@ demu_tx_loop(unsigned portid)
 			cring = &workers_to_tx;
 		else
 			cring = &workers_to_tx2;
-		
+
+		usleep(2000);
 		numdeq = rte_ring_sc_dequeue_burst(*cring,
 				(void *)send_buf, PKT_BURST_TX, NULL);
 
@@ -394,7 +397,7 @@ worker_thread(unsigned portid)
 				rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
 				i++;
 			}
-			else if (portid == 1) {
+			else {
 				rte_ring_sp_enqueue(workers_to_tx, burst_buffer[i]);
 				i++; 
 			}
@@ -557,8 +560,12 @@ check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 	uint8_t portid, count, all_ports_up, print_flag = 0;
 	struct rte_eth_link link;
 
-	printf("\nChecking link status");
+	printf("\nChecking link status\n");
 	fflush(stdout);
+
+	//LOG DREAM
+	//RTE_LOG(INFO, DREAM, "Port_num = %d, Port_mask = %d\n", port_num, port_mask);
+
 	for (count = 0; count <= MAX_CHECK_TIME; count++) {
 		if (force_quit)
 			return;
@@ -566,6 +573,13 @@ check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 		for (portid = 0; portid < port_num; portid++) {
 			if (force_quit)
 				return;
+			
+			/*
+			//LOG DREAM
+			RTE_LOG(INFO, DREAM, "Portid = %d, Shift = %d\n", portid, 1 << portid);
+			RTE_LOG(INFO, DREAM, "Port_mask = %d, & oper = %d\n\n", port_mask, port_mask & (1 << portid));
+			*/
+
 			if ((port_mask & (1 << portid)) == 0)
 				continue;
 			memset(&link, 0, sizeof(link));
@@ -627,6 +641,15 @@ main(int argc, char **argv)
 
 	/* init EAL */
 	ret = rte_eal_init(argc, argv);
+	
+	/*---------------------TEST PARAM-----------------------------
+	//LOG DREAM
+	int dream;
+	RTE_LOG(INFO, DREAM, "argc = %d\n", argc);
+	for(dream = 0; dream < argc+1; dream++)
+		RTE_LOG(INFO, DREAM, "Parameter = %s\n", argv[dream]);
+	-------------------------------------------------------------*/
+
 	if (ret < 0)
 		rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");
 	argc -= ret;
