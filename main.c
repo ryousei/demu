@@ -49,11 +49,6 @@
 #include <signal.h>
 #include <stdbool.h>
 
-//For Bandwidth Limitation
-#include <unistd.h>
-#include <time.h>
-#include <sys/time.h>
-
 /*
  * RTE_LIBRTE_RING_DEBUG generates statistics of ring buffers. However, SEGV is occurred. (v16.07）
  * #define RTE_LIBRTE_RING_DEBUG
@@ -83,6 +78,10 @@
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
 #include <rte_errno.h>
+
+//DREAM
+#include <rte_timer.h>
+void tx_timer_cb(struct rte_timer *tmpTime, void *arg);
 
 static uint64_t loss_random(const char *loss_rate);
 static uint64_t loss_random_a(double loss_rate);
@@ -246,6 +245,26 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 		rte_pktmbuf_free(mbuf_table[i]);
 }
 
+//DREAM
+static int count_id = 0;
+static unsigned array_id[2];
+//static long amount_token = 0;
+static uint64_t debug_cur, debug_prev = 0;
+
+void tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg) {
+	unsigned lcore_id;
+	lcore_id = rte_lcore_id();
+	
+	//amount_token++;
+	//RTE_LOG(INFO, DREAM, "ID: %u, Token: %ld\n", lcore_id, amount_token);
+	
+	debug_cur = rte_rdtsc_precise();
+	uint64_t diff = debug_cur - debug_prev;
+	uint64_t hz = rte_get_timer_hz();
+	RTE_LOG(INFO, DREAM, "Core: %d, Hz: %"PRIu64", Different: %"PRIu64"\n", lcore_id, hz, hz*20-diff);
+	debug_prev = debug_cur;
+}
+	
 static void
 demu_tx_loop(unsigned portid)
 {
@@ -256,10 +275,42 @@ demu_tx_loop(unsigned portid)
 	uint16_t sent;
 	
 	lcore_id = rte_lcore_id();
-
+	
 	RTE_LOG(INFO, DEMU, "entering main tx loop on lcore %u portid %u\n", lcore_id, portid);
+	
+	//DREAM
+	array_id[count_id] = lcore_id;
+	count_id++;
+
+	uint64_t hz = rte_get_timer_hz();
+	uint64_t TIME_RESET = hz/1000000000000000000;
+	uint64_t cur_tsc, diff_tsc, prev_tsc = 0;
+	
+	if(lcore_id == array_id[0]) {
+		struct rte_timer timer0;
+		rte_timer_init(&timer0);
+		rte_timer_reset(&timer0, hz*20, PERIODICAL, lcore_id, tx_timer_cb, NULL);
+	}	
+
+	/*
+	struct rte_timer tx_timer_core1, tx_timer_core2;
+	rte_timer_init(&tx_timer_core1);
+	rte_timer_init(&tx_timer_core2);
+	rte_timer_reset(&tx_timer_core1, hz, PERIODICAL, array_id[0], tx_timer_cb, NULL);
+	rte_timer_reset(&tx_timer_core2, hz*3, PERIODICAL, array_id[1], tx_timer_cb, NULL);
+	*/
 
 	while (!force_quit) {
+		//DREAM ---------------------------
+		cur_tsc = rte_rdtsc();
+		diff_tsc = cur_tsc - prev_tsc;
+
+		if (diff_tsc > TIME_RESET) {
+			rte_timer_manage();
+			prev_tsc = cur_tsc;
+		}
+		//---------------------------------
+
 		if (portid == 0)
 			cring = &workers_to_tx;
 		else
@@ -562,9 +613,6 @@ check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 	printf("\nChecking link status\n");
 	fflush(stdout);
 
-	//LOG DREAM
-	//RTE_LOG(INFO, DREAM, "Port_num = %d, Port_mask = %d\n", port_num, port_mask);
-
 	for (count = 0; count <= MAX_CHECK_TIME; count++) {
 		if (force_quit)
 			return;
@@ -572,12 +620,6 @@ check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 		for (portid = 0; portid < port_num; portid++) {
 			if (force_quit)
 				return;
-			
-			/*
-			//LOG DREAM
-			RTE_LOG(INFO, DREAM, "Portid = %d, Shift = %d\n", portid, 1 << portid);
-			RTE_LOG(INFO, DREAM, "Port_mask = %d, & oper = %d\n\n", port_mask, port_mask & (1 << portid));
-			*/
 
 			if ((port_mask & (1 << portid)) == 0)
 				continue;
@@ -640,14 +682,6 @@ main(int argc, char **argv)
 
 	/* init EAL */
 	ret = rte_eal_init(argc, argv);
-	
-	/*---------------------TEST PARAM-----------------------------
-	//LOG DREAM
-	int dream;
-	RTE_LOG(INFO, DREAM, "argc = %d\n", argc);
-	for(dream = 0; dream < argc+1; dream++)
-		RTE_LOG(INFO, DREAM, "Parameter = %s\n", argv[dream]);
-	-------------------------------------------------------------*/
 
 	if (ret < 0)
 		rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");
@@ -758,8 +792,6 @@ main(int argc, char **argv)
 			rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
 	if (workers_to_tx2 == NULL)
 		rte_exit(EXIT_FAILURE, "%s\n", rte_strerror(rte_errno));
-
-
 
 	ret = 0;
 	/* launch per-lcore init on every lcore */
