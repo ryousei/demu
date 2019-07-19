@@ -79,18 +79,22 @@
 #include <rte_mbuf.h>
 #include <rte_errno.h>
 
+//DREAM
+#include <rte_timer.h>
+void tx_timer_cb(struct rte_timer *tmpTime, void *arg);
+
 static uint64_t loss_random(const char *loss_rate);
 static uint64_t loss_random_a(double loss_rate);
 static bool loss_event(void);
 static bool loss_event_random(uint64_t loss_rate);
 static bool loss_event_GE(uint64_t loss_rate_n, uint64_t loss_rate_a, uint64_t st_ch_rate_no2ab, uint64_t st_ch_rate_ab2no);
 static bool loss_event_4state( uint64_t p13, uint64_t p14, uint64_t p23, uint64_t p31, uint64_t p32);
-static bool dup_event(void);
 #define RANDOM_MAX 1000000000
 
 static volatile bool force_quit;
 
 #define RTE_LOGTYPE_DEMU RTE_LOGTYPE_USER1
+#define RTE_LOGTYPE_DREAM RTE_LOGTYPE_USER2
 
 /*
  * Configurable number of RX/TX ring descriptors
@@ -174,8 +178,6 @@ static uint64_t loss_percent_2 = 0;
 // static uint64_t change_percent_1 = 0;
 // static uint64_t change_percent_2 = 0;
 
-static uint64_t dup_rate = 0;
-
 static const struct rte_eth_conf port_conf = {
 	.rxmode = {
 		.split_hdr_size = 0,
@@ -243,6 +245,26 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 		rte_pktmbuf_free(mbuf_table[i]);
 }
 
+//DREAM
+static int count_id = 0;
+static unsigned array_id[2];
+//static long amount_token = 0;
+static uint64_t debug_cur, debug_prev = 0;
+
+void tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg) {
+	unsigned lcore_id;
+	lcore_id = rte_lcore_id();
+	
+	//amount_token++;
+	//RTE_LOG(INFO, DREAM, "ID: %u, Token: %ld\n", lcore_id, amount_token);
+	
+	debug_cur = rte_rdtsc_precise();
+	uint64_t diff = debug_cur - debug_prev;
+	uint64_t hz = rte_get_timer_hz();
+	RTE_LOG(INFO, DREAM, "Core: %d, Hz: %"PRIu64", Different: %"PRIu64"\n", lcore_id, hz, hz*20-diff);
+	debug_prev = debug_cur;
+}
+	
 static void
 demu_tx_loop(unsigned portid)
 {
@@ -251,18 +273,49 @@ demu_tx_loop(unsigned portid)
 	unsigned lcore_id;
 	uint32_t numdeq = 0;
 	uint16_t sent;
-
-
+	
 	lcore_id = rte_lcore_id();
-
+	
 	RTE_LOG(INFO, DEMU, "entering main tx loop on lcore %u portid %u\n", lcore_id, portid);
+	
+	//DREAM
+	array_id[count_id] = lcore_id;
+	count_id++;
+
+	uint64_t hz = rte_get_timer_hz();
+	uint64_t TIME_RESET = hz/1000000000000000000;
+	uint64_t cur_tsc, diff_tsc, prev_tsc = 0;
+	
+	if(lcore_id == array_id[0]) {
+		struct rte_timer timer0;
+		rte_timer_init(&timer0);
+		rte_timer_reset(&timer0, hz*20, PERIODICAL, lcore_id, tx_timer_cb, NULL);
+	}	
+
+	/*
+	struct rte_timer tx_timer_core1, tx_timer_core2;
+	rte_timer_init(&tx_timer_core1);
+	rte_timer_init(&tx_timer_core2);
+	rte_timer_reset(&tx_timer_core1, hz, PERIODICAL, array_id[0], tx_timer_cb, NULL);
+	rte_timer_reset(&tx_timer_core2, hz*3, PERIODICAL, array_id[1], tx_timer_cb, NULL);
+	*/
 
 	while (!force_quit) {
+		//DREAM ---------------------------
+		cur_tsc = rte_rdtsc();
+		diff_tsc = cur_tsc - prev_tsc;
+
+		if (diff_tsc > TIME_RESET) {
+			rte_timer_manage();
+			prev_tsc = cur_tsc;
+		}
+		//---------------------------------
+
 		if (portid == 0)
 			cring = &workers_to_tx;
 		else
 			cring = &workers_to_tx2;
-		
+
 		numdeq = rte_ring_sc_dequeue_burst(*cring,
 				(void *)send_buf, PKT_BURST_TX, NULL);
 
@@ -301,8 +354,7 @@ demu_rx_loop(unsigned portid)
 	unsigned lcore_id;
 
 	unsigned nb_rx, i;
-	unsigned nb_loss;
-	unsigned nb_dup;
+	int cnt;
 	uint32_t numenq;
 
 	lcore_id = rte_lcore_id();
@@ -319,29 +371,19 @@ demu_rx_loop(unsigned portid)
 #ifdef DEBUG
 		port_statistics[portid].rx += nb_rx;
 #endif
-		nb_loss = 0;
-		nb_dup = 0;
+		
+		cnt = 0;
 		for (i = 0; i < nb_rx; i++) {
-			struct rte_mbuf *clone;
-
+			
 			if (portid == 0 && loss_event()) {
 				port_statistics[portid].discarded++;
-				nb_loss++;
+				cnt++;
 				continue;
 			}
-
-			rx2w_buffer[i - nb_loss + nb_dup] = pkts_burst[i];
-			rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[i - nb_loss + nb_dup], void *));
-			rx2w_buffer[i - nb_loss + nb_dup]->udata64 = rte_rdtsc();
-
-			/* FIXME: we do not check the buffer overrun of rx2w_buffer. */
-			if (portid == 0 && dup_event()) {
-				clone = rte_pktmbuf_clone(rx2w_buffer[i - nb_loss + nb_dup], demu_pktmbuf_pool);
-				if (clone == NULL)
-					RTE_LOG(ERR, DEMU, "cannot clone a packet\n");
-				nb_dup++;
-				rx2w_buffer[i - nb_loss + nb_dup] = clone;
-			}
+			
+			rx2w_buffer[i - cnt] = pkts_burst[i];
+			rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[i - cnt], void *));
+			rx2w_buffer[i - cnt]->udata64 = rte_rdtsc();
 
 #ifdef DEBUG_RX
 			if (rx_cnt < RX_STAT_BUF_SIZE) {
@@ -354,19 +396,18 @@ demu_rx_loop(unsigned portid)
 
 		if (portid == 0)
 			numenq = rte_ring_sp_enqueue_burst(rx_to_workers,
-					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
+					(void *)rx2w_buffer, nb_rx - cnt, NULL);
 		else
 			numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
-					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
-
-
-		if (unlikely(numenq < (unsigned)(nb_rx - nb_loss + nb_dup))) {
+					(void *)rx2w_buffer, nb_rx - cnt, NULL);
+		
+		if (unlikely(numenq < (unsigned)(nb_rx - cnt))) {
 #ifdef DEBUG
-			port_statistics[portid].rx_worker_dropped += (nb_rx - nb_loss + nb_dup - numenq);
+			port_statistics[portid].rx_worker_dropped += (nb_rx - cnt - numenq);
 			printf("Delayed Queue Overflow count:%" PRIu64 "\n",
 					port_statistics[portid].queue_dropped);
 #endif
-			pktmbuf_free_bulk(&pkts_burst[numenq], nb_rx - nb_loss + nb_dup - numenq);
+			pktmbuf_free_bulk(&pkts_burst[numenq], nb_rx - cnt - numenq);
 		}
 	}
 }
@@ -401,13 +442,12 @@ worker_thread(unsigned portid)
 			/* Add a given delay when a packet comes from the port 0.
 			 * TODO: fix this implementation.
 			 */
-			if (portid == 0) {
-				if (diff_tsc >= delayed_time) {
-					rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
-					rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
-					i++;
-				}
-			} else {
+			if (portid == 0 && diff_tsc >= delayed_time) {
+				rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
+				rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
+				i++;
+			}
+			else {
 				rte_ring_sp_enqueue(workers_to_tx, burst_buffer[i]);
 				i++; 
 			}
@@ -453,8 +493,7 @@ demu_usage(const char *prgname)
 	printf("%s [EAL options] -- -d Delayed time [us] (default is 0s)\n"
 		" -p PORTMASK: HEXADECIMAL bitmask of ports to configure\n"
 		" -r random packet loss %% (default is 0%%)\n"
-		" -g XXX\n"
-		" -D duplicate packet rate\n",
+		" -g XXX\n",
 		prgname);
 }
 
@@ -503,7 +542,7 @@ demu_parse_args(int argc, char **argv)
 
 	argvopt = argv;
 
-	while ((opt = getopt_long(argc, argvopt, "d:p:r:g:D:",
+	while ((opt = getopt_long(argc, argvopt, "d:p:r:g:",
 					longopts, &longindex)) != EOF) {
 
 		switch (opt) {
@@ -544,16 +583,6 @@ demu_parse_args(int argc, char **argv)
 				}
 				break;
 
-			/* duplicate packet */
-			case 'D':
-				dup_rate = loss_random(optarg);
-				if (loss_random(optarg) <= 0) {
-					printf("invalid loss rate\n");
-					demu_usage(prgname);
-					return -1;
-				}
-				break;
-
 			/* long options */
 			case 0:
 				demu_usage(prgname);
@@ -581,8 +610,9 @@ check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 	uint8_t portid, count, all_ports_up, print_flag = 0;
 	struct rte_eth_link link;
 
-	printf("\nChecking link status");
+	printf("\nChecking link status\n");
 	fflush(stdout);
+
 	for (count = 0; count <= MAX_CHECK_TIME; count++) {
 		if (force_quit)
 			return;
@@ -590,6 +620,7 @@ check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 		for (portid = 0; portid < port_num; portid++) {
 			if (force_quit)
 				return;
+
 			if ((port_mask & (1 << portid)) == 0)
 				continue;
 			memset(&link, 0, sizeof(link));
@@ -651,6 +682,7 @@ main(int argc, char **argv)
 
 	/* init EAL */
 	ret = rte_eal_init(argc, argv);
+
 	if (ret < 0)
 		rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");
 	argc -= ret;
@@ -760,8 +792,6 @@ main(int argc, char **argv)
 			rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
 	if (workers_to_tx2 == NULL)
 		rte_exit(EXIT_FAILURE, "%s\n", rte_strerror(rte_errno));
-
-
 
 	ret = 0;
 	/* launch per-lcore init on every lcore */
@@ -992,13 +1022,4 @@ loss_event_4state( uint64_t p13, uint64_t p14, uint64_t p23, uint64_t p31, uint6
 	}
 
 	return flag;
-}
-
-static bool
-dup_event(void)
-{
-	if (unlikely(loss_event_random(dup_rate) == true))
-		return true;
-	else
-		return false;
 }
