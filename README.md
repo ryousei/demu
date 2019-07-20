@@ -13,7 +13,7 @@ DEMU is released under the BSD-3-Clause license.
 - Accurate packet loss emulation
   - Random loss
   - Burst loss based on the Gilbert-Elliott model
-
+- Packet duplication
 
 
 ## Getting Started
