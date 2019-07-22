@@ -79,9 +79,10 @@
 #include <rte_mbuf.h>
 #include <rte_errno.h>
 
-//DREAM
+//DREAM CALLING TIMER LIB -----------------------------
 #include <rte_timer.h>
 void tx_timer_cb(struct rte_timer *tmpTime, void *arg);
+//-----------------------------------------------------
 
 static uint64_t loss_random(const char *loss_rate);
 static uint64_t loss_random_a(double loss_rate);
@@ -94,7 +95,7 @@ static bool loss_event_4state( uint64_t p13, uint64_t p14, uint64_t p23, uint64_
 static volatile bool force_quit;
 
 #define RTE_LOGTYPE_DEMU RTE_LOGTYPE_USER1
-#define RTE_LOGTYPE_DREAM RTE_LOGTYPE_USER2
+#define RTE_LOGTYPE_DLOG RTE_LOGTYPE_USER2
 
 /*
  * Configurable number of RX/TX ring descriptors
@@ -245,24 +246,18 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 		rte_pktmbuf_free(mbuf_table[i]);
 }
 
-//DREAM
+//DREAM INIT TOKEN -------------------------
 static int count_id = 0;
 static unsigned array_id[2];
-//static long amount_token = 0;
-static uint64_t debug_cur, debug_prev = 0;
+static long amount_token = 0;
+//------------------------------------------
 
 void tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg) {
 	unsigned lcore_id;
 	lcore_id = rte_lcore_id();
 	
-	//amount_token++;
-	//RTE_LOG(INFO, DREAM, "ID: %u, Token: %ld\n", lcore_id, amount_token);
-	
-	debug_cur = rte_rdtsc_precise();
-	uint64_t diff = debug_cur - debug_prev;
-	uint64_t hz = rte_get_timer_hz();
-	RTE_LOG(INFO, DREAM, "Core: %d, Hz: %"PRIu64", Different: %"PRIu64"\n", lcore_id, hz, hz*20-diff);
-	debug_prev = debug_cur;
+	amount_token++;
+	RTE_LOG(INFO, DLOG, "ID: %u, Token: %ld\n", lcore_id, amount_token);
 }
 	
 static void
@@ -272,36 +267,29 @@ demu_tx_loop(unsigned portid)
 	struct rte_ring **cring;
 	unsigned lcore_id;
 	uint32_t numdeq = 0;
-	uint16_t sent;
-	
+	uint16_t sent = -1;
+
 	lcore_id = rte_lcore_id();
 	
 	RTE_LOG(INFO, DEMU, "entering main tx loop on lcore %u portid %u\n", lcore_id, portid);
 	
-	//DREAM
+	//DREAM ONLY 1 CORE-----------
 	array_id[count_id] = lcore_id;
 	count_id++;
+	//----------------------------
 
 	uint64_t hz = rte_get_timer_hz();
-	uint64_t TIME_RESET = hz/1000000000000000000;
+	uint64_t TIME_RESET = hz/1000000000000;
 	uint64_t cur_tsc, diff_tsc, prev_tsc = 0;
-	
+
 	if(lcore_id == array_id[0]) {
 		struct rte_timer timer0;
 		rte_timer_init(&timer0);
-		rte_timer_reset(&timer0, hz*20, PERIODICAL, lcore_id, tx_timer_cb, NULL);
+		rte_timer_reset(&timer0, hz*3, PERIODICAL, lcore_id, tx_timer_cb, NULL);
 	}	
 
-	/*
-	struct rte_timer tx_timer_core1, tx_timer_core2;
-	rte_timer_init(&tx_timer_core1);
-	rte_timer_init(&tx_timer_core2);
-	rte_timer_reset(&tx_timer_core1, hz, PERIODICAL, array_id[0], tx_timer_cb, NULL);
-	rte_timer_reset(&tx_timer_core2, hz*3, PERIODICAL, array_id[1], tx_timer_cb, NULL);
-	*/
-
 	while (!force_quit) {
-		//DREAM ---------------------------
+		//DREAM SET TIME MANAGER------
 		cur_tsc = rte_rdtsc();
 		diff_tsc = cur_tsc - prev_tsc;
 
@@ -324,7 +312,7 @@ demu_tx_loop(unsigned portid)
 
 		rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
 		sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
-
+	
 #ifdef DEBUG_TX
 		if (tx_cnt < TX_STAT_BUF_SIZE) {
 			for (uint32_t i = 0; i < numdeq; i++) {
@@ -679,6 +667,9 @@ main(int argc, char **argv)
 	uint8_t nb_ports;
 	uint8_t portid;
 	unsigned lcore_id;
+	
+	unsigned d_lcore = rte_lcore_id();
+	RTE_LOG(INFO, DLOG, "Core of the main is %u\n", d_lcore);
 
 	/* init EAL */
 	ret = rte_eal_init(argc, argv);
