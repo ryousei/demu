@@ -250,17 +250,25 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 		rte_pktmbuf_free(mbuf_table[i]);
 }
 
-//DREAM INIT TOKEN -------------------------
-static int count_id = 0;
-static unsigned array_id[2];
+//DREAM TOKEN--------------------------------------------------------------
 static long amount_token = 0;
-//------------------------------------------
 
-//DREAM TIMER FUNCTION------------------------------------------------------
 static void timer_loop(void) {
+	RTE_LOG(INFO, DLOG, "entering timer loop on lcore %u\n", lcore_id);
+
 	unsigned lcore_id;
+	uint64_t hz, manager;
+	uint64_t prev_tsc, cur_tsc, diff_tsc;
+	struct rte_timer timer;
+
 	lcore_id = rte_lcore_id();
-	RTE_LOG(INFO, DLOG, "Lcore in timer function = %u\n\n\n", lcore_id);
+	manager = hz/1000000000000;
+	hz = rte_get_timer_hz();
+	
+	rte_timer_init(&timer);
+	rte_timer_reset(&timer, hz, PERIODICAL, lcore_id, tx_timer_cb, NULL);
+
+	
 }
 
 void tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg) {
@@ -465,7 +473,7 @@ demu_launch_one_lcore(__attribute__((unused)) void *dummy)
 	printf("Core: %d\n", lcore_id);
 
 	//DREAM PRINT SLAVE LCORE---------------------------------
-	RTE_LOG(INFO, DLOG, "@Slave LCORE = %u\n\n", rte_lcore_id());
+	RTE_LOG(INFO, DLOG, "lcore in slave function is %u\n", rte_lcore_id());
 	//--------------------------------------------------------
 
 	if (lcore_id == TX_THREAD_CORE) 
@@ -701,7 +709,7 @@ main(int argc, char **argv)
 
 	//DREAM CHECK MAIN LCORE------------------------------------
 	unsigned d_lcore = rte_lcore_id();
-	RTE_LOG(ERR, DLOG, "@Main LCORE = %u\n\n", d_lcore);
+	RTE_LOG(ERR, DLOG, "lcore in main function is %u\n", d_lcore);
 	//----------------------------------------------------------
 
 	force_quit = false;
