@@ -319,7 +319,8 @@ demu_tx_loop(unsigned portid)
 			continue;
 
 		//DREAM CHECK PKT SIZE-----------------------------------------------------
-		RTE_LOG(INFO, DLOG, "send_buf has size %"PRIu32"\n", send_buf[0]->l2_type);
+		//RTE_LOG(INFO, DLOG, "send_buf has (packet len,data len,port) %"PRIu32", %"PRIu16", %"PRIu16"\n", send_buf[0]->pkt_len, send_buf[0]->data_len, send_buf[0]->port);
+		//RTE_LOG(INFO, DLOG, "send_buf has data size %"PRIu16"\n", send_buf[0]->data_len);
 		//-------------------------------------------------------------------------
 
 		rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
