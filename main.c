@@ -135,6 +135,10 @@ struct demu_port_statistics port_statistics[RTE_MAX_ETHPORTS];
 #define WORKER_THREAD_CORE 6
 #define WORKER_THREAD_CORE2 7
 
+//DREAM TIMER THREAD-------
+#define TIMER_THREAD_CORE 8
+//-------------------------
+
 /*
  * The maximum number of packets which are processed in burst.
  * Note: do not set PKT_BURST_RX to 1.
@@ -252,14 +256,22 @@ static unsigned array_id[2];
 static long amount_token = 0;
 //------------------------------------------
 
+//DREAM TIMER FUNCTION------------------------------------------------------
+static void timer_loop(void) {
+	unsigned lcore_id;
+	lcore_id = rte_lcore_id();
+	RTE_LOG(INFO, DLOG, "Lcore in timer function = %u\n\n\n", lcore_id);
+}
+
 void tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg) {
 	unsigned lcore_id;
 	lcore_id = rte_lcore_id();
 	
 	amount_token++;
 	RTE_LOG(INFO, DLOG, "ID: %u, Token: %ld\n", lcore_id, amount_token);
-}
-	
+}	
+//--------------------------------------------------------------------------
+
 static void
 demu_tx_loop(unsigned portid)
 {
@@ -277,7 +289,8 @@ demu_tx_loop(unsigned portid)
 	array_id[count_id] = lcore_id;
 	count_id++;
 	//----------------------------
-
+	
+	//DREAM SET TIMER PERIOD-----------------
 	uint64_t hz = rte_get_timer_hz();
 	uint64_t TIME_RESET = hz/1000000000000;
 	uint64_t cur_tsc, diff_tsc, prev_tsc = 0;
@@ -287,9 +300,10 @@ demu_tx_loop(unsigned portid)
 		rte_timer_init(&timer0);
 		rte_timer_reset(&timer0, hz*3, PERIODICAL, lcore_id, tx_timer_cb, NULL);
 	}	
+	//---------------------------------------
 
 	while (!force_quit) {
-		//DREAM SET TIME MANAGER------
+		//DREAM SET TIME MANAGER----------
 		cur_tsc = rte_rdtsc();
 		diff_tsc = cur_tsc - prev_tsc;
 
@@ -450,6 +464,10 @@ demu_launch_one_lcore(__attribute__((unused)) void *dummy)
 	lcore_id = rte_lcore_id();
 	printf("Core: %d\n", lcore_id);
 
+	//DREAM PRINT SLAVE LCORE---------------------------------
+	RTE_LOG(INFO, DLOG, "@Slave LCORE = %u\n\n", rte_lcore_id());
+	//--------------------------------------------------------
+
 	if (lcore_id == TX_THREAD_CORE) 
 		demu_tx_loop(1);
 
@@ -467,6 +485,11 @@ demu_launch_one_lcore(__attribute__((unused)) void *dummy)
 
 	else if (lcore_id == RX_THREAD_CORE2)
 		demu_rx_loop(0);
+	
+	//DREAM CALL TIMER THREAD--------------
+	else if (lcore_id == TIMER_THREAD_CORE)
+		timer_loop();
+	//-------------------------------------
 
 	if (force_quit)
 		return 0;
@@ -667,9 +690,6 @@ main(int argc, char **argv)
 	uint8_t nb_ports;
 	uint8_t portid;
 	unsigned lcore_id;
-	
-	unsigned d_lcore = rte_lcore_id();
-	RTE_LOG(INFO, DLOG, "Core of the main is %u\n", d_lcore);
 
 	/* init EAL */
 	ret = rte_eal_init(argc, argv);
@@ -678,6 +698,11 @@ main(int argc, char **argv)
 		rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");
 	argc -= ret;
 	argv += ret;
+
+	//DREAM CHECK MAIN LCORE------------------------------------
+	unsigned d_lcore = rte_lcore_id();
+	RTE_LOG(ERR, DLOG, "@Main LCORE = %u\n\n", d_lcore);
+	//----------------------------------------------------------
 
 	force_quit = false;
 	signal(SIGINT, signal_handler);
