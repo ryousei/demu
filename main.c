@@ -252,32 +252,44 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 }
 
 //DREAM TOKEN--------------------------------------------------------------
-static long amount_token = 0;
+static uint64_t amount_token = 0;
+static unsigned long speed = 1;
 
 static void timer_loop(void) {
-	RTE_LOG(INFO, DLOG, "entering timer loop on lcore %u\n", lcore_id);
-
 	unsigned lcore_id;
-	uint64_t hz, manager;
+	uint64_t hz = 0, manager = 0;
 	uint64_t prev_tsc, cur_tsc, diff_tsc;
 	struct rte_timer timer;
 
 	lcore_id = rte_lcore_id();
 	manager = hz/1000000000000;
 	hz = rte_get_timer_hz();
+	prev_tsc = 0;
 	
 	rte_timer_init(&timer);
-	rte_timer_reset(&timer, hz, PERIODICAL, lcore_id, tx_timer_cb, NULL);
+	rte_timer_reset(&timer, hz/speed, PERIODICAL, lcore_id, tx_timer_cb, NULL);
 
+	RTE_LOG(INFO, DLOG, "speed from user is %lu\n", speed);
+	RTE_LOG(INFO, DLOG, "entering timer loop on lcore %u\n", lcore_id);
 	
+	while(!force_quit) {
+		cur_tsc = rte_rdtsc();
+		diff_tsc = cur_tsc - prev_tsc;
+
+		if(diff_tsc > manager) {
+			rte_timer_manage();
+			prev_tsc = cur_tsc;
+		}
+	}	
 }
 
 void tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg) {
-	unsigned lcore_id;
-	lcore_id = rte_lcore_id();
-	
+	//unsigned lcore_id;
+
+	//lcore_id = rte_lcore_id();
 	amount_token++;
-	RTE_LOG(INFO, DLOG, "ID: %u, Token: %ld\n", lcore_id, amount_token);
+
+	//RTE_LOG(INFO, DLOG, "token = %"PRIu64" reported by lcoreid %u\n", amount_token, lcore_id);
 }	
 //--------------------------------------------------------------------------
 
@@ -293,35 +305,8 @@ demu_tx_loop(unsigned portid)
 	lcore_id = rte_lcore_id();
 	
 	RTE_LOG(INFO, DEMU, "entering main tx loop on lcore %u portid %u\n", lcore_id, portid);
-	
-	//DREAM ONLY 1 CORE-----------
-	array_id[count_id] = lcore_id;
-	count_id++;
-	//----------------------------
-	
-	//DREAM SET TIMER PERIOD-----------------
-	uint64_t hz = rte_get_timer_hz();
-	uint64_t TIME_RESET = hz/1000000000000;
-	uint64_t cur_tsc, diff_tsc, prev_tsc = 0;
-
-	if(lcore_id == array_id[0]) {
-		struct rte_timer timer0;
-		rte_timer_init(&timer0);
-		rte_timer_reset(&timer0, hz*3, PERIODICAL, lcore_id, tx_timer_cb, NULL);
-	}	
-	//---------------------------------------
 
 	while (!force_quit) {
-		//DREAM SET TIME MANAGER----------
-		cur_tsc = rte_rdtsc();
-		diff_tsc = cur_tsc - prev_tsc;
-
-		if (diff_tsc > TIME_RESET) {
-			rte_timer_manage();
-			prev_tsc = cur_tsc;
-		}
-		//---------------------------------
-
 		if (portid == 0)
 			cring = &workers_to_tx;
 		else
@@ -332,6 +317,10 @@ demu_tx_loop(unsigned portid)
 
 		if (unlikely(numdeq == 0))
 			continue;
+
+		//DREAM CHECK PKT SIZE-----------------------------------------------------
+		RTE_LOG(INFO, DLOG, "send_buf has size %"PRIu32"\n", send_buf[0]->l2_type);
+		//-------------------------------------------------------------------------
 
 		rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
 		sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
@@ -562,7 +551,12 @@ demu_parse_args(int argc, char **argv)
 
 	argvopt = argv;
 
-	while ((opt = getopt_long(argc, argvopt, "d:p:r:g:",
+	//DREAM DECLARE FOR SPEED
+	unsigned long tmp_speed;
+	char *end_speed = NULL;
+	//-----------------------
+
+	while ((opt = getopt_long(argc, argvopt, "d:p:r:g:s:",
 					longopts, &longindex)) != EOF) {
 
 		switch (opt) {
@@ -602,6 +596,19 @@ demu_parse_args(int argc, char **argv)
 					return -1;
 				}
 				break;
+
+			//DREAM RECEIVE SPEED-----------------
+			case 's':
+				tmp_speed = strtoul(optarg, &end_speed, 10);
+				
+				if (optarg[0] == '\0' || end_speed == NULL || *end_speed != '\0') {
+					RTE_LOG(ERR, DLOG, "Invalid Speed\n");
+					return -1;
+				}
+				else
+					speed = tmp_speed*1000000;		
+				break;
+			//------------------------------------
 
 			/* long options */
 			case 0:
