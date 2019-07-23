@@ -82,6 +82,7 @@
 //DREAM CALLING TIMER LIB -----------------------------
 #include <rte_timer.h>
 void tx_timer_cb(struct rte_timer *tmpTime, void *arg);
+static void timer_loop(void);
 //-----------------------------------------------------
 
 static uint64_t loss_random(const char *loss_rate);
