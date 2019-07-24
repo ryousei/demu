@@ -253,7 +253,7 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 
 //DREAM TOKEN--------------------------------------------------------------
 static uint64_t amount_token = 0;
-static unsigned long speed = 1;
+static unsigned long speed = 1000000;
 
 static void timer_loop(void) {
 	unsigned lcore_id;
@@ -269,7 +269,7 @@ static void timer_loop(void) {
 	rte_timer_init(&timer);
 	rte_timer_reset(&timer, hz/speed, PERIODICAL, lcore_id, tx_timer_cb, NULL);
 
-	RTE_LOG(INFO, DLOG, "speed from user is %lu\n", speed);
+	RTE_LOG(INFO, DLOG, "speed from user is %lu Mbps\n", speed/1000000);
 	RTE_LOG(INFO, DLOG, "entering timer loop on lcore %u\n", lcore_id);
 	
 	while(!force_quit) {
@@ -288,8 +288,9 @@ void tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute_
 
 	//lcore_id = rte_lcore_id();
 	amount_token++;
-
-	//RTE_LOG(INFO, DLOG, "token = %"PRIu64" reported by lcoreid %u\n", amount_token, lcore_id);
+	
+	//if ((amount_token % 10000000 == 0))
+	//	RTE_LOG(INFO, DLOG, "token = %"PRIu64" reported by lcoreid %u\n", amount_token, lcore_id);
 }	
 //--------------------------------------------------------------------------
 
@@ -301,6 +302,11 @@ demu_tx_loop(unsigned portid)
 	unsigned lcore_id;
 	uint32_t numdeq = 0;
 	uint16_t sent = -1;
+
+	//DREAM VAR-------------
+	//uint32_t total_size = 0;
+	uint16_t pkt_size_bit;
+	//----------------------
 
 	lcore_id = rte_lcore_id();
 	
@@ -317,10 +323,32 @@ demu_tx_loop(unsigned portid)
 
 		if (unlikely(numdeq == 0))
 			continue;
+		
+		//DREAM USE TOKEN
+		if(lcore_id == TX_THREAD_CORE) {
+			pkt_size_bit = send_buf[0]->pkt_len * 8;
+			//RTE_LOG(INFO, DLOG, "length: %"PRIu16"\ntoken: %lu\n", pkt_size_bit, amount_token);
 
-		//DREAM CHECK PKT SIZE-----------------------------------------------------
-		//RTE_LOG(INFO, DLOG, "send_buf has (packet len,data len,port) %"PRIu32", %"PRIu16", %"PRIu16"\n", send_buf[0]->pkt_len, send_buf[0]->data_len, send_buf[0]->port);
-		//RTE_LOG(INFO, DLOG, "send_buf has data size %"PRIu16"\n", send_buf[0]->data_len);
+			if(amount_token < pkt_size_bit)
+				continue;
+			else {
+				amount_token -= pkt_size_bit;
+				//RTE_LOG(INFO, DLOG, "consume %"PRIu16" tokens %lu left\n",
+				//	       	pkt_size_bit,
+				//	       	amount_token);
+			}
+		}
+		//
+
+		//DREAM CHECK PKT SIZE && NUM PKT------------------------------------------
+		/*total_size += send_buf[0]->pkt_len;
+		RTE_LOG(INFO, DLOG, "send_buf has (packet len,data len,port,total) %"
+				PRIu32", %"PRIu16", %"PRIu16", %"PRIu32"\n",
+				send_buf[0]->pkt_len,
+				send_buf[0]->data_len,
+				send_buf[0]->port,
+				total_size);
+		RTE_LOG(INFO, DLOG, "number of dequeued packet is %"PRIu32"\n", numdeq);*/
 		//-------------------------------------------------------------------------
 
 		rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
@@ -598,7 +626,7 @@ demu_parse_args(int argc, char **argv)
 				}
 				break;
 
-			//DREAM RECEIVE SPEED-----------------
+			//DREAM RECEIVE SPEED-------------------------------
 			case 's':
 				tmp_speed = strtoul(optarg, &end_speed, 10);
 				
@@ -609,7 +637,7 @@ demu_parse_args(int argc, char **argv)
 				else
 					speed = tmp_speed*1000000;		
 				break;
-			//------------------------------------
+			//-------------------------------------------------
 
 			/* long options */
 			case 0:
