@@ -79,11 +79,9 @@
 #include <rte_mbuf.h>
 #include <rte_errno.h>
 
-//DREAM CALLING TIMER LIB -----------------------------
 #include <rte_timer.h>
 void tx_timer_cb(struct rte_timer *tmpTime, void *arg);
 static void timer_loop(void);
-//-----------------------------------------------------
 
 static uint64_t loss_random(const char *loss_rate);
 static uint64_t loss_random_a(double loss_rate);
@@ -135,10 +133,7 @@ struct demu_port_statistics port_statistics[RTE_MAX_ETHPORTS];
 #define TX_THREAD_CORE2 5
 #define WORKER_THREAD_CORE 6
 #define WORKER_THREAD_CORE2 7
-
-//DREAM TIMER THREAD-------
 #define TIMER_THREAD_CORE 8
-//-------------------------
 
 /*
  * The maximum number of packets which are processed in burst.
@@ -251,9 +246,10 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 		rte_pktmbuf_free(mbuf_table[i]);
 }
 
-//DREAM TOKEN--------------------------------------------------------------
 static uint64_t amount_token = 0;
-static unsigned long speed = 1000000;
+static unsigned long speed = 1;
+static bool power;
+static bool timer_thread = false;
 
 static void timer_loop(void) {
 	unsigned lcore_id;
@@ -267,9 +263,10 @@ static void timer_loop(void) {
 	prev_tsc = 0;
 	
 	rte_timer_init(&timer);
-	rte_timer_reset(&timer, hz/speed, PERIODICAL, lcore_id, tx_timer_cb, NULL);
-
-	RTE_LOG(INFO, DLOG, "speed from user is %lu Mbps\n", speed/1000000);
+	rte_timer_reset(&timer, hz/1000000, PERIODICAL, lcore_id, tx_timer_cb, NULL);
+	
+	if(power) RTE_LOG(INFO, DLOG, "speed from user is %lu Gbps\n", speed);
+	else RTE_LOG(INFO, DLOG, "speed from user is %lu Mbps\n", speed);
 	RTE_LOG(INFO, DLOG, "entering timer loop on lcore %u\n", lcore_id);
 	
 	while(!force_quit) {
@@ -284,15 +281,9 @@ static void timer_loop(void) {
 }
 
 void tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg) {
-	//unsigned lcore_id;
-
-	//lcore_id = rte_lcore_id();
-	amount_token++;
-	
-	//if ((amount_token % 10000000 == 0))
-	//	RTE_LOG(INFO, DLOG, "token = %"PRIu64" reported by lcoreid %u\n", amount_token, lcore_id);
+	if(power) amount_token += speed * 1000;
+	else amount_token += speed;
 }	
-//--------------------------------------------------------------------------
 
 static void
 demu_tx_loop(unsigned portid)
@@ -303,15 +294,12 @@ demu_tx_loop(unsigned portid)
 	uint32_t numdeq = 0;
 	uint16_t sent = -1;
 
-	//DREAM VAR-------------
-	//uint32_t total_size = 0;
 	uint16_t pkt_size_bit;
-	//----------------------
+	bool send_flag;
 
 	lcore_id = rte_lcore_id();
 	
 	RTE_LOG(INFO, DEMU, "entering main tx loop on lcore %u portid %u\n", lcore_id, portid);
-
 	while (!force_quit) {
 		if (portid == 0)
 			cring = &workers_to_tx;
@@ -324,36 +312,27 @@ demu_tx_loop(unsigned portid)
 		if (unlikely(numdeq == 0))
 			continue;
 		
-		//DREAM USE TOKEN
-		if(lcore_id == TX_THREAD_CORE) {
-			pkt_size_bit = send_buf[0]->pkt_len * 8;
-			//RTE_LOG(INFO, DLOG, "length: %"PRIu16"\ntoken: %lu\n", pkt_size_bit, amount_token);
+		if(timer_thread) {
+			send_flag = false;
+			if(lcore_id == TX_THREAD_CORE) {
+				pkt_size_bit = send_buf[0]->pkt_len * 8;
 
-			if(amount_token < pkt_size_bit)
-				continue;
-			else {
-				amount_token -= pkt_size_bit;
-				//RTE_LOG(INFO, DLOG, "consume %"PRIu16" tokens %lu left\n",
-				//	       	pkt_size_bit,
-				//	       	amount_token);
+				if(amount_token >= pkt_size_bit) {
+					send_flag = true;
+					amount_token -= pkt_size_bit;
+				}
 			}
+			rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
+		
+			if(send_flag == true || lcore_id == TX_THREAD_CORE2)	
+				sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
+			else
+				sent = 0;
+		} else {
+			rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
+			sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
 		}
-		//
 
-		//DREAM CHECK PKT SIZE && NUM PKT------------------------------------------
-		/*total_size += send_buf[0]->pkt_len;
-		RTE_LOG(INFO, DLOG, "send_buf has (packet len,data len,port,total) %"
-				PRIu32", %"PRIu16", %"PRIu16", %"PRIu32"\n",
-				send_buf[0]->pkt_len,
-				send_buf[0]->data_len,
-				send_buf[0]->port,
-				total_size);
-		RTE_LOG(INFO, DLOG, "number of dequeued packet is %"PRIu32"\n", numdeq);*/
-		//-------------------------------------------------------------------------
-
-		rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
-		sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
-	
 #ifdef DEBUG_TX
 		if (tx_cnt < TX_STAT_BUF_SIZE) {
 			for (uint32_t i = 0; i < numdeq; i++) {
@@ -491,9 +470,7 @@ demu_launch_one_lcore(__attribute__((unused)) void *dummy)
 	lcore_id = rte_lcore_id();
 	printf("Core: %d\n", lcore_id);
 
-	//DREAM PRINT SLAVE LCORE---------------------------------
 	RTE_LOG(INFO, DLOG, "lcore in slave function is %u\n", rte_lcore_id());
-	//--------------------------------------------------------
 
 	if (lcore_id == TX_THREAD_CORE) 
 		demu_tx_loop(1);
@@ -513,10 +490,8 @@ demu_launch_one_lcore(__attribute__((unused)) void *dummy)
 	else if (lcore_id == RX_THREAD_CORE2)
 		demu_rx_loop(0);
 	
-	//DREAM CALL TIMER THREAD--------------
-	else if (lcore_id == TIMER_THREAD_CORE)
+	else if (timer_thread && lcore_id == TIMER_THREAD_CORE)
 		timer_loop();
-	//-------------------------------------
 
 	if (force_quit)
 		return 0;
@@ -580,10 +555,9 @@ demu_parse_args(int argc, char **argv)
 
 	argvopt = argv;
 
-	//DREAM DECLARE FOR SPEED
 	unsigned long tmp_speed;
 	char *end_speed = NULL;
-	//-----------------------
+	char unit;
 
 	while ((opt = getopt_long(argc, argvopt, "d:p:r:g:s:",
 					longopts, &longindex)) != EOF) {
@@ -626,18 +600,27 @@ demu_parse_args(int argc, char **argv)
 				}
 				break;
 
-			//DREAM RECEIVE SPEED-------------------------------
 			case 's':
 				tmp_speed = strtoul(optarg, &end_speed, 10);
-				
-				if (optarg[0] == '\0' || end_speed == NULL || *end_speed != '\0') {
+				unit = *end_speed;
+				end_speed++;
+
+				if (unit == '\0' || optarg[0] == '\0' || end_speed == NULL || *end_speed != '\0') {
 					RTE_LOG(ERR, DLOG, "Invalid Speed\n");
 					return -1;
 				}
-				else
-					speed = tmp_speed*1000000;		
+				else {
+					if(unit == 'M') power = false;
+					else if(unit == 'G') power = true;
+					else {
+						RTE_LOG(ERR, DLOG, "Invalid Unit\n");
+						return -1;
+					}
+					speed = tmp_speed;
+					timer_thread = true;
+					RTE_LOG(INFO, DLOG, "ENABLE TIMER THREAD\n");
+				}		
 				break;
-			//-------------------------------------------------
 
 			/* long options */
 			case 0:
@@ -744,10 +727,8 @@ main(int argc, char **argv)
 	argc -= ret;
 	argv += ret;
 
-	//DREAM CHECK MAIN LCORE------------------------------------
 	unsigned d_lcore = rte_lcore_id();
 	RTE_LOG(ERR, DLOG, "lcore in main function is %u\n", d_lcore);
-	//----------------------------------------------------------
 
 	force_quit = false;
 	signal(SIGINT, signal_handler);
