@@ -251,7 +251,7 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 		rte_pktmbuf_free(mbuf_table[i]);
 }
 
-//DREAM TOKEN--------------------------------------------------------------
+//DREAM TOKEN---------------------------------------------------------------
 static uint64_t amount_token = 0;
 static unsigned long speed = 1000000;
 
