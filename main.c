@@ -80,8 +80,6 @@
 #include <rte_errno.h>
 #include <rte_timer.h>
 
-void tx_timer_cb(struct rte_timer *tmpTime, void *arg);
-static void timer_loop(void);
 static int64_t loss_random(const char *loss_rate);
 static int64_t loss_random_a(double loss_rate);
 static bool loss_event(void);
@@ -248,42 +246,41 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 }
 
 static uint64_t amount_token = 0;
-static unsigned long speed = 1;
-static bool power;
-static bool timer_thread = false;
+static uint64_t limit_speed = 0;
 
-static void timer_loop(void) {
+static void
+tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg)
+{
+	amount_token += (limit_speed / 1000000);
+}
+
+static void
+demu_timer_loop(void)
+{
 	unsigned lcore_id;
 	uint64_t hz = 0, manager = 0;
-	uint64_t prev_tsc, cur_tsc, diff_tsc;
+	uint64_t prev_tsc = 0, cur_tsc, diff_tsc;
 	struct rte_timer timer;
 
 	lcore_id = rte_lcore_id();
-	manager = hz/1000000000000;
+	manager = hz / 1000000000000;
 	hz = rte_get_timer_hz();
-	prev_tsc = 0;
-	
+
 	rte_timer_init(&timer);
-	rte_timer_reset(&timer, hz/1000000, PERIODICAL, lcore_id, tx_timer_cb, NULL);
-	
-	if(power) RTE_LOG(INFO, DEMU, "speed from user is %lu Gbps\n", speed);
-	else RTE_LOG(INFO, DEMU, "speed from user is %lu Mbps\n", speed);
-	RTE_LOG(INFO, DEMU, "entering timer loop on lcore %u\n", lcore_id);
-	
-	while(!force_quit) {
+	rte_timer_reset(&timer, hz / 1000000, PERIODICAL, lcore_id, tx_timer_cb, NULL);
+
+	RTE_LOG(INFO, DEMU, "Entering timer loop on lcore %u\n", lcore_id);
+	RTE_LOG(INFO, DEMU, "  Linit speed is %lu bps\n", limit_speed);
+
+	while (!force_quit) {
 		cur_tsc = rte_rdtsc();
 		diff_tsc = cur_tsc - prev_tsc;
 
-		if(diff_tsc > manager) {
+		if (diff_tsc > manager) {
 			rte_timer_manage();
 			prev_tsc = cur_tsc;
 		}
-	}	
-}
-
-void tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg) {
-	if(power) amount_token += speed * 1000;
-	else amount_token += speed;
+	}
 }
 
 static void
@@ -294,9 +291,8 @@ demu_tx_loop(unsigned portid)
 	unsigned lcore_id;
 	uint32_t numdeq = 0;
 	uint16_t sent;
-	
 	uint16_t pkt_size_bit;
-	bool send_flag;
+	bool send_flag = true;
 
 	lcore_id = rte_lcore_id();
 
@@ -314,25 +310,22 @@ demu_tx_loop(unsigned portid)
 		if (unlikely(numdeq == 0))
 			continue;
 
-		if(timer_thread) {
-			send_flag = false;
-			if(lcore_id == TX_THREAD_CORE) {
-				pkt_size_bit = send_buf[0]->pkt_len * 8;
+		if (limit_speed && lcore_id == TX_THREAD_CORE) {
+			pkt_size_bit = send_buf[0]->pkt_len * 8;
 
-				if(amount_token >= pkt_size_bit) {
-					send_flag = true;
-					amount_token -= pkt_size_bit;
-				}
+			if (amount_token >= pkt_size_bit) {
+				send_flag = true;
+				amount_token -= pkt_size_bit;
+			} else {
+				send_flag = false;
 			}
-			rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
-		
-			if(send_flag == true || lcore_id == TX_THREAD_CORE2)	
-				sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
-			else
-				sent = 0;
-		} else {
+		}
+
+		if (send_flag) {
 			rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
 			sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
+		} else {
+			sent = 0;
 		}
 
 #ifdef DEBUG_TX
@@ -462,7 +455,7 @@ worker_thread(unsigned portid)
 			diff_tsc = rte_rdtsc() - burst_buffer[i]->udata64;
 
 			/* Add a given delay when a packet comes from the port 0.
-			 * TODO: fix this implementation.
+			 * FIXME: fix this implementation.
 			 */
 			if (portid == 0) {
 				if (diff_tsc >= delayed_time) {
@@ -502,9 +495,9 @@ demu_launch_one_lcore(__attribute__((unused)) void *dummy)
 	else if (lcore_id == RX_THREAD_CORE2)
 		demu_rx_loop(0);
 
-	else if (timer_thread && lcore_id == TIMER_THREAD_CORE)
-		timer_loop();
-	
+	else if (limit_speed && lcore_id == TIMER_THREAD_CORE)
+		demu_timer_loop();
+
 	if (force_quit)
 		return 0;
 
@@ -519,6 +512,7 @@ demu_usage(const char *prgname)
 		" -p PORTMASK: HEXADECIMAL bitmask of ports to configure\n"
 		" -r random packet loss %% (default is 0%%)\n"
 		" -g XXX\n"
+		" -s bandwidth limitation [bps]\n"
 		" -D duplicate packet rate\n",
 		prgname);
 }
@@ -551,6 +545,42 @@ demu_parse_delayed(const char *q_arg)
 	return n;
 }
 
+static int64_t
+demu_parse_speed(const char *arg)
+{
+	int64_t speed, base;
+	char *end = NULL;
+
+	speed = strtoul(arg, &end, 10);
+	if (end != NULL) {
+		char unit = *end;
+
+		switch (unit) {
+			case 'k':
+			case 'K':
+				base = 1000;
+				break;
+			case 'm':
+			case 'M':
+				base = 1000 * 1000;
+				break;
+			case 'g':
+			case 'G':
+				base = 1000 * 1000 * 1000;
+				break;
+			default:
+				return -1;
+		}
+		end++;
+	}
+
+	if (arg[0] == '\0' || end == NULL || *end != '\0') {
+		return -1;
+	}
+
+	return speed * base;
+}
+
 /* Parse the argument given in the command line of the application */
 static int
 demu_parse_args(int argc, char **argv)
@@ -565,12 +595,8 @@ demu_parse_args(int argc, char **argv)
 	int64_t val;
 
 	argvopt = argv;
-	
-	unsigned long tmp_speed;
-	char *end_speed = NULL;
-	char unit;
 
-	while ((opt = getopt_long(argc, argvopt, "d:p:r:g:D:",
+	while ((opt = getopt_long(argc, argvopt, "d:g:p:r:s:D:",
 					longopts, &longindex)) != EOF) {
 
 		switch (opt) {
@@ -628,27 +654,15 @@ demu_parse_args(int argc, char **argv)
 				}
 				dup_rate = val;
 				break;
-				
-			case 's':
-				tmp_speed = strtoul(optarg, &end_speed, 10);
-				unit = *end_speed;
-				end_speed++;
 
-				if (unit == '\0' || optarg[0] == '\0' || end_speed == NULL || *end_speed != '\0') {
-					RTE_LOG(ERR, DEMU, "Invalid Speed\n");
+			/* bandwidth limitation */
+			case 's':
+				val = demu_parse_speed(optarg);
+				if (val < 0) {
+					RTE_LOG(ERR, DEMU, "Invalid value: speed\n");
 					return -1;
 				}
-				else {
-					if(unit == 'M') power = false;
-					else if(unit == 'G') power = true;
-					else {
-						RTE_LOG(ERR, DEMU, "Invalid Unit\n");
-						return -1;
-					}
-					speed = tmp_speed;
-					timer_thread = true;
-					RTE_LOG(INFO, DEMU, "ENABLE TIMER THREAD\n");
-				}		
+				limit_speed = val;
 				break;
 
 			/* long options */
@@ -966,13 +980,13 @@ loss_event(void)
 
 	case LOSS_MODE_GE:
 		if (unlikely(loss_event_GE(loss_random_a(0), loss_random_a(100),
-		    loss_percent_1, loss_percent_2) == true))
+			loss_percent_1, loss_percent_2) == true))
 			lost = true;
 		break;
 
 	case LOSS_MODE_4STATE: /* FIX IT */
 		if (unlikely(loss_event_4state(loss_random_a(100), loss_random_a(0),
-		    loss_random_a(100), loss_random_a(0), loss_random_a(1)) == true))
+			loss_random_a(100), loss_random_a(0), loss_random_a(1)) == true))
 			lost = true;
 		break;
 	}
