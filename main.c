@@ -303,6 +303,7 @@ demu_tx_loop(unsigned portid)
 	lcore_id = rte_lcore_id();
 	
 	RTE_LOG(INFO, DEMU, "Entering main tx loop on lcore %u portid %u\n", lcore_id, portid);
+	
 	while (!force_quit) {
 		if (portid == 0)
 			cring = &workers_to_tx;
@@ -387,6 +388,7 @@ demu_rx_loop(unsigned portid)
 		nb_dup = 0;
 		for (i = 0; i < nb_rx; i++) {
 			struct rte_mbuf *clone;	
+			
 			if (portid == 0 && loss_event()) {
 				port_statistics[portid].discarded++;
 				nb_loss++;
@@ -397,7 +399,7 @@ demu_rx_loop(unsigned portid)
 			rte_prefetch0(rte_pktmbuf_mtod(rx2w_buffer[i - nb_loss + nb_dup], void *));
 			rx2w_buffer[i - nb_loss + nb_dup]->udata64 = rte_rdtsc();
 			
-			//FIXME: we do not check the buffer overrun of rx2w_buffer.
+			/* FIXME: we do not check the buffer overrun of rx2w_buffer */
 			if(portid == 0 && dup_event()) {
 				clone = rte_pktmbuf_clone(rx2w_buffer[i - nb_loss + nb_dup], demu_pktmbuf_pool);
 				if(clone == NULL)
@@ -405,6 +407,7 @@ demu_rx_loop(unsigned portid)
 				nb_dup++;
 				rx2w_buffer[i - nb_loss + nb_dup] = clone;
 			}
+
 #ifdef DEBUG_RX
 			if (rx_xnt < RX_STAT_BUF_SIZE) {
 				rx_stat[rx_cnt] = rte_rdtsc();
@@ -421,6 +424,8 @@ demu_rx_loop(unsigned portid)
 			numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
 					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
 		
+
+
 		if (unlikely(numenq < (unsigned)(nb_rx - nb_loss + nb_dup))) {
 #ifdef DEBUG
 			port_statistics[portid].rx_worker_dropped += (nb_rx - nb_loss + nb_dup - numenq);
@@ -463,13 +468,12 @@ worker_thread(unsigned portid)
 			 * TODO: fix this implementation.
 			 */
 			if (portid == 0) {
-				if(diff_tsc >= delayed_time) {
+				if (diff_tsc >= delayed_time) {
 					rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
 					rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
 					i++;
 				}
-			}
-			else {
+			} else {
 				rte_ring_sp_enqueue(workers_to_tx, burst_buffer[i]);
 				i++; 
 			}
@@ -579,7 +583,7 @@ demu_parse_args(int argc, char **argv)
 			case 'p':
 				demu_enabled_port_mask = demu_parse_portmask(optarg);
 				if (demu_enabled_port_mask <= 0) {
-					printf("Invalid value portmask\n");
+					printf("Invalid value: portmask\n");
 					demu_usage(prgname);
 					return -1;
 				}
@@ -588,7 +592,7 @@ demu_parse_args(int argc, char **argv)
 			/* delayed packet */
 			case 'd':
 				val = demu_parse_delayed(optarg);
-				if(val < 0){
+				if (val < 0){
 					printf("Invalid value: delayed time\n");
 					demu_usage(prgname);
 					return -1;
@@ -599,7 +603,7 @@ demu_parse_args(int argc, char **argv)
 			/* random packet loss */
 			case 'r':
 				val = loss_random(optarg);
-				if(val < 0) {
+				if (val < 0) {
 					printf("Invalid value: loss rate\n");
 					demu_usage(prgname);
 					return -1;
@@ -610,7 +614,7 @@ demu_parse_args(int argc, char **argv)
 
 			case 'g':
 				val = loss_random(optarg);
-				if(val < 0) {
+				if (val < 0) {
 					printf("Invalid value: loss rate\n");
 					demu_usage(prgname);
 					return -1;
@@ -622,7 +626,7 @@ demu_parse_args(int argc, char **argv)
 			/* duplicate packet */
 			case 'D':
 				val = loss_random(optarg);
-				if(val < 0) {
+				if (val < 0) {
 					printf("Invalid value: loss rate\n");
 					demu_usage(prgname);
 					return -1;
@@ -679,7 +683,7 @@ check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 	uint8_t portid, count, all_ports_up, print_flag = 0;
 	struct rte_eth_link link;
 
-	printf("\nChecking link status\n");
+	RTE_LOG(INFO, DEMU, "Checking link status\n");
 
 	for (count = 0; count <= MAX_CHECK_TIME; count++) {
 		if (force_quit)
@@ -696,13 +700,13 @@ check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 			/* print link status if flag set */
 			if (print_flag == 1) {
 				if (link.link_status)
-					RTE_LOG(INFO, DEMU, "Port %d Link Up - speed %u "
+					RTE_LOG(INFO, DEMU, " Port %d Link Up - speed %u "
 						"Mbps - %s\n", (uint8_t)portid,
 						(unsigned)link.link_speed,
 						(link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
 						("full-duplex") : ("half-duplex\n"));
 				else
-					RTE_LOG(INFO, DEMU, "Port %d Link Down\n",
+					RTE_LOG(INFO, DEMU, " Port %d Link Down\n",
 						(uint8_t)portid);
 				continue;
 			}
@@ -782,7 +786,7 @@ main(int argc, char **argv)
 	/* Initialise each port */
 	for (portid = 0; portid < nb_ports; portid++) {
 		/* init port */
-		RTE_LOG(INFO, DEMU, "Initializing port %u... ", (unsigned) portid);
+		RTE_LOG(INFO, DEMU, "Initializing port %u\n", (unsigned) portid);
 		ret = rte_eth_dev_configure(portid, 1, 1, &port_conf);
 		if (ret < 0)
 			rte_exit(EXIT_FAILURE, "Cannot configure device: err=%d, port=%u\n",
@@ -815,7 +819,7 @@ main(int argc, char **argv)
 
 		rte_eth_promiscuous_enable(portid);
 
-		RTE_LOG(INFO, DEMU, "Port %u, MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+		RTE_LOG(INFO, DEMU, " Port %u, MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 			(unsigned) portid,
 			demu_ports_eth_addr[portid].addr_bytes[0],
 			demu_ports_eth_addr[portid].addr_bytes[1],
@@ -947,7 +951,7 @@ loss_random(const char *loss_rate)
 	double percent;
 	uint64_t percent_u64;
 
-	if(sscanf(loss_rate, "%lf", &percent) == 0)
+	if (sscanf(loss_rate, "%lf", &percent) == 0)
 		return -1;
 	percent *= RANDOM_MAX / 100;
 	percent_u64 = (uint64_t)percent;
@@ -1085,8 +1089,10 @@ loss_event_4state( uint64_t p13, uint64_t p14, uint64_t p23, uint64_t p31, uint6
 	return flag;
 }
 
-static bool dup_event(void) {
-	if(unlikely(loss_event_random(dup_rate) == true))
+static bool
+dup_event(void)
+{
+	if (unlikely(loss_event_random(dup_rate) == true))
 		return true;
 	else
 		return false;
