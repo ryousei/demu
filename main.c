@@ -78,6 +78,7 @@
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
 #include <rte_errno.h>
+#include <rte_timer.h>
 
 static int64_t loss_random(const char *loss_rate);
 static int64_t loss_random_a(double loss_rate);
@@ -129,6 +130,7 @@ struct demu_port_statistics port_statistics[RTE_MAX_ETHPORTS];
 #define TX_THREAD_CORE2 5
 #define WORKER_THREAD_CORE 6
 #define WORKER_THREAD_CORE2 7
+#define TIMER_THREAD_CORE 8
 
 /*
  * The maximum number of packets which are processed in burst.
@@ -243,6 +245,44 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 		rte_pktmbuf_free(mbuf_table[i]);
 }
 
+static uint64_t amount_token = 0;
+static uint64_t limit_speed = 0;
+
+static void
+tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg)
+{
+	amount_token += (limit_speed / 1000000);
+}
+
+static void
+demu_timer_loop(void)
+{
+	unsigned lcore_id;
+	uint64_t hz = 0, manager = 0;
+	uint64_t prev_tsc = 0, cur_tsc, diff_tsc;
+	struct rte_timer timer;
+
+	lcore_id = rte_lcore_id();
+	manager = hz / 1000000000000;
+	hz = rte_get_timer_hz();
+
+	rte_timer_init(&timer);
+	rte_timer_reset(&timer, hz / 1000000, PERIODICAL, lcore_id, tx_timer_cb, NULL);
+
+	RTE_LOG(INFO, DEMU, "Entering timer loop on lcore %u\n", lcore_id);
+	RTE_LOG(INFO, DEMU, "  Linit speed is %lu bps\n", limit_speed);
+
+	while (!force_quit) {
+		cur_tsc = rte_rdtsc();
+		diff_tsc = cur_tsc - prev_tsc;
+
+		if (diff_tsc > manager) {
+			rte_timer_manage();
+			prev_tsc = cur_tsc;
+		}
+	}
+}
+
 static void
 demu_tx_loop(unsigned portid)
 {
@@ -251,7 +291,8 @@ demu_tx_loop(unsigned portid)
 	unsigned lcore_id;
 	uint32_t numdeq = 0;
 	uint16_t sent;
-
+	uint16_t pkt_size_bit;
+	bool send_flag = true;
 
 	lcore_id = rte_lcore_id();
 
@@ -269,8 +310,23 @@ demu_tx_loop(unsigned portid)
 		if (unlikely(numdeq == 0))
 			continue;
 
-		rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
-		sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
+		if (limit_speed && lcore_id == TX_THREAD_CORE) {
+			pkt_size_bit = send_buf[0]->pkt_len * 8;
+
+			if (amount_token >= pkt_size_bit) {
+				send_flag = true;
+				amount_token -= pkt_size_bit;
+			} else {
+				send_flag = false;
+			}
+		}
+
+		if (send_flag) {
+			rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
+			sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
+		} else {
+			sent = 0;
+		}
 
 #ifdef DEBUG_TX
 		if (tx_cnt < TX_STAT_BUF_SIZE) {
@@ -399,7 +455,7 @@ worker_thread(unsigned portid)
 			diff_tsc = rte_rdtsc() - burst_buffer[i]->udata64;
 
 			/* Add a given delay when a packet comes from the port 0.
-			 * TODO: fix this implementation.
+			 * FIXME: fix this implementation.
 			 */
 			if (portid == 0) {
 				if (diff_tsc >= delayed_time) {
@@ -439,6 +495,9 @@ demu_launch_one_lcore(__attribute__((unused)) void *dummy)
 	else if (lcore_id == RX_THREAD_CORE2)
 		demu_rx_loop(0);
 
+	else if (limit_speed && lcore_id == TIMER_THREAD_CORE)
+		demu_timer_loop();
+
 	if (force_quit)
 		return 0;
 
@@ -453,6 +512,7 @@ demu_usage(const char *prgname)
 		" -p PORTMASK: HEXADECIMAL bitmask of ports to configure\n"
 		" -r random packet loss %% (default is 0%%)\n"
 		" -g XXX\n"
+		" -s bandwidth limitation [bps]\n"
 		" -D duplicate packet rate\n",
 		prgname);
 }
@@ -485,6 +545,42 @@ demu_parse_delayed(const char *q_arg)
 	return n;
 }
 
+static int64_t
+demu_parse_speed(const char *arg)
+{
+	int64_t speed, base;
+	char *end = NULL;
+
+	speed = strtoul(arg, &end, 10);
+	if (end != NULL) {
+		char unit = *end;
+
+		switch (unit) {
+			case 'k':
+			case 'K':
+				base = 1000;
+				break;
+			case 'm':
+			case 'M':
+				base = 1000 * 1000;
+				break;
+			case 'g':
+			case 'G':
+				base = 1000 * 1000 * 1000;
+				break;
+			default:
+				return -1;
+		}
+		end++;
+	}
+
+	if (arg[0] == '\0' || end == NULL || *end != '\0') {
+		return -1;
+	}
+
+	return speed * base;
+}
+
 /* Parse the argument given in the command line of the application */
 static int
 demu_parse_args(int argc, char **argv)
@@ -500,7 +596,7 @@ demu_parse_args(int argc, char **argv)
 
 	argvopt = argv;
 
-	while ((opt = getopt_long(argc, argvopt, "d:p:r:g:D:",
+	while ((opt = getopt_long(argc, argvopt, "d:g:p:r:s:D:",
 					longopts, &longindex)) != EOF) {
 
 		switch (opt) {
@@ -557,6 +653,16 @@ demu_parse_args(int argc, char **argv)
 					return -1;
 				}
 				dup_rate = val;
+				break;
+
+			/* bandwidth limitation */
+			case 's':
+				val = demu_parse_speed(optarg);
+				if (val < 0) {
+					RTE_LOG(ERR, DEMU, "Invalid value: speed\n");
+					return -1;
+				}
+				limit_speed = val;
 				break;
 
 			/* long options */
@@ -874,13 +980,13 @@ loss_event(void)
 
 	case LOSS_MODE_GE:
 		if (unlikely(loss_event_GE(loss_random_a(0), loss_random_a(100),
-		    loss_percent_1, loss_percent_2) == true))
+			loss_percent_1, loss_percent_2) == true))
 			lost = true;
 		break;
 
 	case LOSS_MODE_4STATE: /* FIX IT */
 		if (unlikely(loss_event_4state(loss_random_a(100), loss_random_a(0),
-		    loss_random_a(100), loss_random_a(0), loss_random_a(1)) == true))
+			loss_random_a(100), loss_random_a(0), loss_random_a(1)) == true))
 			lost = true;
 		break;
 	}
