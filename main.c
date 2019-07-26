@@ -78,7 +78,10 @@
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
 #include <rte_errno.h>
+#include <rte_timer.h>
 
+void tx_timer_cb(struct rte_timer *tmpTime, void *arg);
+static void timer_loop(void);
 static int64_t loss_random(const char *loss_rate);
 static int64_t loss_random_a(double loss_rate);
 static bool loss_event(void);
@@ -91,6 +94,7 @@ static bool dup_event(void);
 static volatile bool force_quit;
 
 #define RTE_LOGTYPE_DEMU RTE_LOGTYPE_USER1
+#define RTE_LOGTYPE_DLOG RTE_LOGTYPE_USER2
 
 /*
  * Configurable number of RX/TX ring descriptors
@@ -129,6 +133,7 @@ struct demu_port_statistics port_statistics[RTE_MAX_ETHPORTS];
 #define TX_THREAD_CORE2 5
 #define WORKER_THREAD_CORE 6
 #define WORKER_THREAD_CORE2 7
+#define TIMER_THREAD_CORE 8
 
 /*
  * The maximum number of packets which are processed in burst.
@@ -243,6 +248,45 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 		rte_pktmbuf_free(mbuf_table[i]);
 }
 
+static uint64_t amount_token = 0;
+static unsigned long speed = 1;
+static bool power;
+static bool timer_thread = false;
+
+static void timer_loop(void) {
+	unsigned lcore_id;
+	uint64_t hz = 0, manager = 0;
+	uint64_t prev_tsc, cur_tsc, diff_tsc;
+	struct rte_timer timer;
+
+	lcore_id = rte_lcore_id();
+	manager = hz/1000000000000;
+	hz = rte_get_timer_hz();
+	prev_tsc = 0;
+	
+	rte_timer_init(&timer);
+	rte_timer_reset(&timer, hz/1000000, PERIODICAL, lcore_id, tx_timer_cb, NULL);
+	
+	if(power) RTE_LOG(INFO, DLOG, "speed from user is %lu Gbps\n", speed);
+	else RTE_LOG(INFO, DLOG, "speed from user is %lu Mbps\n", speed);
+	RTE_LOG(INFO, DLOG, "entering timer loop on lcore %u\n", lcore_id);
+	
+	while(!force_quit) {
+		cur_tsc = rte_rdtsc();
+		diff_tsc = cur_tsc - prev_tsc;
+
+		if(diff_tsc > manager) {
+			rte_timer_manage();
+			prev_tsc = cur_tsc;
+		}
+	}	
+}
+
+void tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg) {
+	if(power) amount_token += speed * 1000;
+	else amount_token += speed;
+}
+
 static void
 demu_tx_loop(unsigned portid)
 {
@@ -251,7 +295,9 @@ demu_tx_loop(unsigned portid)
 	unsigned lcore_id;
 	uint32_t numdeq = 0;
 	uint16_t sent;
-
+	
+	uint16_t pkt_size_bit;
+	bool send_flag;
 
 	lcore_id = rte_lcore_id();
 
@@ -269,8 +315,26 @@ demu_tx_loop(unsigned portid)
 		if (unlikely(numdeq == 0))
 			continue;
 
-		rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
-		sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
+		if(timer_thread) {
+			send_flag = false;
+			if(lcore_id == TX_THREAD_CORE) {
+				pkt_size_bit = send_buf[0]->pkt_len * 8;
+
+				if(amount_token >= pkt_size_bit) {
+					send_flag = true;
+					amount_token -= pkt_size_bit;
+				}
+			}
+			rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
+		
+			if(send_flag == true || lcore_id == TX_THREAD_CORE2)	
+				sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
+			else
+				sent = 0;
+		} else {
+			rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
+			sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
+		}
 
 #ifdef DEBUG_TX
 		if (tx_cnt < TX_STAT_BUF_SIZE) {
@@ -439,6 +503,9 @@ demu_launch_one_lcore(__attribute__((unused)) void *dummy)
 	else if (lcore_id == RX_THREAD_CORE2)
 		demu_rx_loop(0);
 
+	else if (timer_thread && lcore_id == TIMER_THREAD_CORE)
+		timer_loop();
+	
 	if (force_quit)
 		return 0;
 
@@ -499,6 +566,10 @@ demu_parse_args(int argc, char **argv)
 	int64_t val;
 
 	argvopt = argv;
+	
+	unsigned long tmp_speed;
+	char *end_speed = NULL;
+	char unit;
 
 	while ((opt = getopt_long(argc, argvopt, "d:p:r:g:D:",
 					longopts, &longindex)) != EOF) {
@@ -557,6 +628,28 @@ demu_parse_args(int argc, char **argv)
 					return -1;
 				}
 				dup_rate = val;
+				break;
+				
+			case 's':
+				tmp_speed = strtoul(optarg, &end_speed, 10);
+				unit = *end_speed;
+				end_speed++;
+
+				if (unit == '\0' || optarg[0] == '\0' || end_speed == NULL || *end_speed != '\0') {
+					RTE_LOG(ERR, DLOG, "Invalid Speed\n");
+					return -1;
+				}
+				else {
+					if(unit == 'M') power = false;
+					else if(unit == 'G') power = true;
+					else {
+						RTE_LOG(ERR, DLOG, "Invalid Unit\n");
+						return -1;
+					}
+					speed = tmp_speed;
+					timer_thread = true;
+					RTE_LOG(INFO, DLOG, "ENABLE TIMER THREAD\n");
+				}		
 				break;
 
 			/* long options */
