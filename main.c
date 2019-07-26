@@ -386,7 +386,7 @@ demu_rx_loop(unsigned portid)
 		nb_loss = 0;
 		nb_dup = 0;
 		for (i = 0; i < nb_rx; i++) {
-			struct *clone;	
+			struct rte_mbuf *clone;	
 			if (portid == 0 && loss_event()) {
 				port_statistics[portid].discarded++;
 				nb_loss++;
@@ -406,7 +406,7 @@ demu_rx_loop(unsigned portid)
 				rx2w_buffer[i - nb_loss + nb_dup] = clone;
 			}
 #ifdef DEBUG_RX
-			if (rx_cnt < RX_STAT_BUF_SIZE) {
+			if (rx_xnt < RX_STAT_BUF_SIZE) {
 				rx_stat[rx_cnt] = rte_rdtsc();
 				rx_cnt++;
 			}
@@ -421,7 +421,7 @@ demu_rx_loop(unsigned portid)
 			numenq = rte_ring_sp_enqueue_burst(rx_to_workers2,
 					(void *)rx2w_buffer, nb_rx - nb_loss + nb_dup, NULL);
 		
-		if (unlikely(numenq < (unsigned)(nb_rx - cnt))) {
+		if (unlikely(numenq < (unsigned)(nb_rx - nb_loss + nb_dup))) {
 #ifdef DEBUG
 			port_statistics[portid].rx_worker_dropped += (nb_rx - nb_loss + nb_dup - numenq);
 			printf("Delayed Queue Overflow count:%" PRIu64 "\n",
@@ -810,7 +810,7 @@ main(int argc, char **argv)
 		/* Start device */
 		ret = rte_eth_dev_start(portid);
 		if (ret < 0)
-			rte_exit(EXIT_FAILURE, "rte_eth_dev_start:err=%d, port=%u\n"
+			rte_exit(EXIT_FAILURE, "rte_eth_dev_start:err=%d, port=%u\n",
 					ret, (unsigned) portid);
 
 		rte_eth_promiscuous_enable(portid);
