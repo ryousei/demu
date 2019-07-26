@@ -94,7 +94,6 @@ static bool dup_event(void);
 static volatile bool force_quit;
 
 #define RTE_LOGTYPE_DEMU RTE_LOGTYPE_USER1
-#define RTE_LOGTYPE_DLOG RTE_LOGTYPE_USER2
 
 /*
  * Configurable number of RX/TX ring descriptors
@@ -267,9 +266,9 @@ static void timer_loop(void) {
 	rte_timer_init(&timer);
 	rte_timer_reset(&timer, hz/1000000, PERIODICAL, lcore_id, tx_timer_cb, NULL);
 	
-	if(power) RTE_LOG(INFO, DLOG, "speed from user is %lu Gbps\n", speed);
-	else RTE_LOG(INFO, DLOG, "speed from user is %lu Mbps\n", speed);
-	RTE_LOG(INFO, DLOG, "entering timer loop on lcore %u\n", lcore_id);
+	if(power) RTE_LOG(INFO, DEMU, "speed from user is %lu Gbps\n", speed);
+	else RTE_LOG(INFO, DEMU, "speed from user is %lu Mbps\n", speed);
+	RTE_LOG(INFO, DEMU, "entering timer loop on lcore %u\n", lcore_id);
 	
 	while(!force_quit) {
 		cur_tsc = rte_rdtsc();
@@ -636,19 +635,19 @@ demu_parse_args(int argc, char **argv)
 				end_speed++;
 
 				if (unit == '\0' || optarg[0] == '\0' || end_speed == NULL || *end_speed != '\0') {
-					RTE_LOG(ERR, DLOG, "Invalid Speed\n");
+					RTE_LOG(ERR, DEMU, "Invalid Speed\n");
 					return -1;
 				}
 				else {
 					if(unit == 'M') power = false;
 					else if(unit == 'G') power = true;
 					else {
-						RTE_LOG(ERR, DLOG, "Invalid Unit\n");
+						RTE_LOG(ERR, DEMU, "Invalid Unit\n");
 						return -1;
 					}
 					speed = tmp_speed;
 					timer_thread = true;
-					RTE_LOG(INFO, DLOG, "ENABLE TIMER THREAD\n");
+					RTE_LOG(INFO, DEMU, "ENABLE TIMER THREAD\n");
 				}		
 				break;
 
