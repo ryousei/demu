@@ -107,7 +107,11 @@ $ sudo ./build/demu -c fc -n 4 -- -p 3 -d <delay time [us]> \
                                   -g <probability from Bad state to Good state [%]>
 ```
 
+For bandwidth limtation, you can specify the target rate as `-s <speed>[K|M|G]`. For example, `1G` means 1 Gbps. Note: DEMU assigns one extra core for a timer thread. Therefore you have to change the `--coremap (-c)` option.
 
+```shell
+$ sudo ./build/demu -c 1fc -n 4 -- -p 3 -s <speed[K/M/G]>
+```
 
 Finally, you restore the normal Linux network configuration as follows:
 
@@ -138,6 +142,7 @@ Note: PCI device ID (e.g., 0000:01:00.0) depends on the hardware configuration.
 
 - Shuhei AKETA, Ritsumeikan University
 - Kanon SASAKI, Kougakuin University
+- Chayapon Puakalong, Mahidol University
 - Takahiro Hirofuchi, AIST
 - Ryousei Takano, AIST
 
