@@ -258,12 +258,10 @@ static void
 demu_timer_loop(void)
 {
 	unsigned lcore_id;
-	uint64_t hz = 0, manager = 0;
-	uint64_t prev_tsc = 0, cur_tsc, diff_tsc;
+	uint64_t hz;
 	struct rte_timer timer;
 
 	lcore_id = rte_lcore_id();
-	manager = hz / 1000000000000;
 	hz = rte_get_timer_hz();
 
 	rte_timer_init(&timer);
@@ -272,15 +270,8 @@ demu_timer_loop(void)
 	RTE_LOG(INFO, DEMU, "Entering timer loop on lcore %u\n", lcore_id);
 	RTE_LOG(INFO, DEMU, "  Linit speed is %lu bps\n", limit_speed);
 
-	while (!force_quit) {
-		cur_tsc = rte_rdtsc();
-		diff_tsc = cur_tsc - prev_tsc;
-
-		if (diff_tsc > manager) {
-			rte_timer_manage();
-			prev_tsc = cur_tsc;
-		}
-	}
+	while (!force_quit)
+		rte_timer_manage();
 }
 
 static void
