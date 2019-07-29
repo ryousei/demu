@@ -257,7 +257,7 @@ tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((un
 	else {
 		sub_amount_token += limit_speed;
 		if(sub_amount_token > 1000000) {
-			amount_token = sub_amount_token / 1000000;
+			amount_token += sub_amount_token / 1000000;
 			sub_amount_token %= 1000000;
 		}
 	}
