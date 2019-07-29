@@ -263,7 +263,7 @@ demu_timer_loop(void)
 	struct rte_timer timer;
 
 	lcore_id = rte_lcore_id();
-	manager = hz / 1000000000000;
+	manager = 0;
 	hz = rte_get_timer_hz();
 
 	rte_timer_init(&timer);
