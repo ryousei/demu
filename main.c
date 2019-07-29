@@ -247,11 +247,20 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 
 static uint64_t amount_token = 0;
 static uint64_t limit_speed = 0;
+static uint64_t sub_amount_token = 0;
 
 static void
 tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg)
 {
-	amount_token += (limit_speed / 1000000);
+	if(limit_speed >= 1000000)
+		amount_token += (limit_speed / 1000000);
+	else {
+		sub_amount_token += limit_speed;
+		if(sub_amount_token > 1000000) {
+			amount_token = sub_amount_token / 1000000;
+			sub_amount_token %= 1000000;
+		}
+	}
 }
 
 static void
