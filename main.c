@@ -247,23 +247,30 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 
 static uint64_t amount_token = 0;
 static uint64_t limit_speed = 0;
+static uint64_t sub_amount_token = 0;
 
 static void
 tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg)
 {
-	amount_token += (limit_speed / 1000000);
+	if (limit_speed >= 1000000)
+		amount_token += (limit_speed / 1000000);
+	else {
+		sub_amount_token += limit_speed;
+		if (sub_amount_token > 1000000) {
+			amount_token += sub_amount_token / 1000000;
+			sub_amount_token %= 1000000;
+		}
+	}
 }
 
 static void
 demu_timer_loop(void)
 {
 	unsigned lcore_id;
-	uint64_t hz = 0, manager = 0;
-	uint64_t prev_tsc = 0, cur_tsc, diff_tsc;
+	uint64_t hz;
 	struct rte_timer timer;
 
 	lcore_id = rte_lcore_id();
-	manager = 0;
 	hz = rte_get_timer_hz();
 
 	rte_timer_init(&timer);
@@ -272,15 +279,8 @@ demu_timer_loop(void)
 	RTE_LOG(INFO, DEMU, "Entering timer loop on lcore %u\n", lcore_id);
 	RTE_LOG(INFO, DEMU, "  Linit speed is %lu bps\n", limit_speed);
 
-	while (!force_quit) {
-		cur_tsc = rte_rdtsc();
-		diff_tsc = cur_tsc - prev_tsc;
-
-		if (diff_tsc > manager) {
-			rte_timer_manage();
-			prev_tsc = cur_tsc;
-		}
-	}
+	while (!force_quit)
+		rte_timer_manage();
 }
 
 static void
