@@ -252,7 +252,8 @@ static uint64_t sub_amount_token = 0;
 static void
 tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg)
 {
-	if (amount_token < 100000000000) {
+	double upper_limit_speed = limit_speed * 1.2;
+	if (amount_token < (uint64_t)upper_limit_speed) {
 		if (limit_speed >= 1000000)
 			amount_token += (limit_speed / 1000000);
 		else {
