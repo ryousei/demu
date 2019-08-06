@@ -569,6 +569,7 @@ demu_parse_speed(const char *arg)
 				break;
 			case 'g':
 			case 'G':
+				if (speed > 10) return -1;
 				base = 1000 * 1000 * 1000;
 				break;
 			default:
