@@ -314,7 +314,9 @@ demu_tx_loop(unsigned portid)
 			continue;
 
 		rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
-		sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
+		sent = 0;
+		while (numdeq > sent)
+			sent += rte_eth_tx_burst(portid, 0, send_buf + sent, numdeq - sent);
 
 #ifdef DEBUG_TX
 		if (tx_cnt < TX_STAT_BUF_SIZE) {
@@ -325,15 +327,8 @@ demu_tx_loop(unsigned portid)
 		}
 #endif
 
-		if (unlikely(numdeq != sent)) {
-			pktmbuf_free_bulk(&send_buf[sent], numdeq - sent);
-		}
 #ifdef DEBUG
-		else {
-			// printf("tx:%u %u\n", numdeq, sent);
-			port_statistics[portid].tx += sent;
-			port_statistics[portid].dropped += (numdeq - sent);
-		}
+		port_statistics[portid].tx += sent;
 #endif
 	}
 }
