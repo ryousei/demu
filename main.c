@@ -136,9 +136,9 @@ struct demu_port_statistics port_statistics[RTE_MAX_ETHPORTS];
  * The maximum number of packets which are processed in burst.
  * Note: do not set PKT_BURST_RX to 1.
  */
-#define PKT_BURST_RX 32
-#define PKT_BURST_TX 32
-#define PKT_BURST_WORKER 32
+#define PKT_BURST_RX 32768
+#define PKT_BURST_TX 32768
+#define PKT_BURST_WORKER 32768
 
 /*
  * The default mempool size is not enough for bufferijng 64KB of short packets for 1 second.
@@ -297,7 +297,8 @@ demu_tx_loop(unsigned portid)
 	uint32_t numdeq = 0;
 	uint16_t sent;
 	uint16_t pkt_size_bit;
-	bool send_flag = true;
+	uint32_t num_send = 0;
+	uint16_t prevent_discard = 0;
 
 	lcore_id = rte_lcore_id();
 
@@ -310,27 +311,29 @@ demu_tx_loop(unsigned portid)
 			cring = &workers_to_tx2;
 		
 		numdeq = rte_ring_sc_dequeue_burst(*cring,
-				(void *)send_buf, PKT_BURST_TX, NULL);
+				(void *)(send_buf + prevent_discard), PKT_BURST_TX, NULL);
 
 		if (unlikely(numdeq == 0))
 			continue;
 
 		if (limit_speed && lcore_id == TX_THREAD_CORE) {
-			pkt_size_bit = send_buf[0]->pkt_len * 8;
-
-			if (amount_token >= pkt_size_bit) {
-				send_flag = true;
-				amount_token -= pkt_size_bit;
-			} else {
-				send_flag = false;
+			num_send = 0;
+			for (uint32_t j = 0; j < numdeq + prevent_discard; j++) {
+				pkt_size_bit = send_buf[j]->pkt_len * 8;
+				if (amount_token >= pkt_size_bit) {
+					amount_token -= pkt_size_bit;
+					num_send++;
+				} else break;
 			}
-		}
+			rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
+			sent = rte_eth_tx_burst(portid, 0, send_buf, num_send);
 
-		if (send_flag) {
+			if (prevent_discard < PKT_BURST_TX) {
+				prevent_discard = numdeq + prevent_discard - num_send;
+			}
+		} else {
 			rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
 			sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
-		} else {
-			sent = 0;
 		}
 
 #ifdef DEBUG_TX
@@ -341,9 +344,15 @@ demu_tx_loop(unsigned portid)
 			}
 		}
 #endif
-
-		if (unlikely(numdeq != sent)) {
-			pktmbuf_free_bulk(&send_buf[sent], numdeq - sent);
+		if (limit_speed && lcore_id == TX_THREAD_CORE) {
+			if (prevent_discard >= (uint16_t)(PKT_BURST_TX * 0.8)) {
+				pktmbuf_free_bulk(&send_buf[sent], numdeq - sent);
+				prevent_discard = 0;
+			}
+		} else {
+			if (unlikely(numdeq != sent)) {
+				pktmbuf_free_bulk(&send_buf[sent], numdeq - sent);
+			}
 		}
 #ifdef DEBUG
 		else {
