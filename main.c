@@ -248,6 +248,7 @@ static double max_speed = 10000000000.0; /* FIXME: 10Gbps */
 static uint64_t limit_speed = 0;
 static uint64_t amount_token = 0; /* one token represents capacity of 1 Mbps. */
 static uint64_t sub_amount_token = 0;
+static bool bw_crc_mode = false;
 
 static void
 tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg)
@@ -398,6 +399,8 @@ demu_rx_loop(unsigned portid)
 	}
 }
 
+uint32_t rem_gap_len;
+
 static void
 worker_thread(unsigned portid)
 {
@@ -432,6 +435,38 @@ worker_thread(unsigned portid)
 				diff_tsc = rte_rdtsc() - burst_buffer[i]->udata64;
 				if (diff_tsc < delayed_time)
 					continue;
+
+				if (limit_speed && bw_crc_mode) {
+					struct rte_mbuf *pkt;
+					uint32_t gap_len;
+					uint32_t gap_pkt_len;
+					double max_speed = 10000000000.0;
+
+					gap_len = rem_gap_len + 
+						  (double)burst_buffer[i]->data_len * ((max_speed / (double)limit_speed) - 1.0);
+
+					while (1) {
+						if (1538 < gap_len) {
+							gap_pkt_len = 1538;
+						} else if (gap_len < 128) {
+							rem_gap_len = gap_len;
+							break;
+						} else {
+							gap_pkt_len = gap_len;
+						}
+						pkt = rte_pktmbuf_alloc(demu_pktmbuf_pool);
+						if (pkt == NULL)
+							RTE_LOG(ERR, DEMU, "cannot alloc a gap packet\n");
+						pkt->pkt_len = gap_pkt_len - 20;
+						pkt->data_len = gap_pkt_len - 20;
+						pkt->ol_flags |= PKT_TX_NO_CRC_CSUM;
+						rte_ring_sp_enqueue(workers_to_tx2, pkt);
+						gap_len -= gap_pkt_len;
+					}
+					rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
+					i++;
+					continue;
+				}
 
 				if (limit_speed) {
 					uint16_t pkt_size_bit = burst_buffer[i]->pkt_len * 8;
@@ -479,7 +514,7 @@ demu_launch_one_lcore(__attribute__((unused)) void *dummy)
 	else if (lcore_id == RX_THREAD_CORE2)
 		demu_rx_loop(0);
 
-	else if (limit_speed && lcore_id == TIMER_THREAD_CORE)
+	else if (limit_speed && !bw_crc_mode && lcore_id == TIMER_THREAD_CORE)
 		demu_timer_loop();
 
 	if (force_quit)
@@ -585,7 +620,7 @@ demu_parse_args(int argc, char **argv)
 
 	argvopt = argv;
 
-	while ((opt = getopt_long(argc, argvopt, "d:g:p:r:s:D:",
+	while ((opt = getopt_long(argc, argvopt, "bd:g:p:r:s:D:",
 					longopts, &longindex)) != EOF) {
 
 		switch (opt) {
@@ -652,6 +687,11 @@ demu_parse_args(int argc, char **argv)
 					return -1;
 				}
 				limit_speed = val;
+				break;
+
+			/* Experimental: bandwidth regulation (CRC error mode) */
+			case 'b':
+				bw_crc_mode = true;
 				break;
 
 			/* long options */
