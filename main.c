@@ -219,7 +219,6 @@ static struct rte_eth_txconf tx_conf = {
 	.tx_deferred_start = 0,            /**< Do not start queue with rte_eth_dev_start(). */
 };
 
-/* #define DEBUG */
 /* #define DEBUG_RX */
 /* #define DEBUG_TX */
 
@@ -245,6 +244,7 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 		rte_pktmbuf_free(mbuf_table[i]);
 }
 
+static double max_speed = 10000000000.0; /* FIXME: 10Gbps */
 static uint64_t limit_speed = 0;
 static uint64_t amount_token = 0; /* one token represents capacity of 1 Mbps. */
 static uint64_t sub_amount_token = 0;
@@ -252,7 +252,7 @@ static uint64_t sub_amount_token = 0;
 static void
 tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg)
 {
-	double upper_limit_speed = limit_speed * 1.2;
+	double upper_limit_speed = max_speed / 100000;
 
 	if (amount_token >= (uint64_t)upper_limit_speed)
 		return;
@@ -313,7 +313,6 @@ demu_tx_loop(unsigned portid)
 		if (unlikely(numdeq == 0))
 			continue;
 
-		rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
 		sent = 0;
 		while (numdeq > sent)
 			sent += rte_eth_tx_burst(portid, 0, send_buf + sent, numdeq - sent);
@@ -325,10 +324,6 @@ demu_tx_loop(unsigned portid)
 				tx_cnt++;
 			}
 		}
-#endif
-
-#ifdef DEBUG
-		port_statistics[portid].tx += sent;
 #endif
 	}
 }
@@ -349,15 +344,11 @@ demu_rx_loop(unsigned portid)
 	RTE_LOG(INFO, DEMU, "Entering main rx loop on lcore %u portid %u\n", lcore_id, portid);
 
 	while (!force_quit) {
-		nb_rx = rte_eth_rx_burst((uint8_t) portid, 0,
-				pkts_burst, PKT_BURST_RX);
+		nb_rx = rte_eth_rx_burst((uint8_t) portid, 0, pkts_burst, PKT_BURST_RX);
 
 		if (likely(nb_rx == 0))
 			continue;
 
-#ifdef DEBUG
-		port_statistics[portid].rx += nb_rx;
-#endif
 		nb_loss = 0;
 		nb_dup = 0;
 		for (i = 0; i < nb_rx; i++) {
@@ -400,11 +391,8 @@ demu_rx_loop(unsigned portid)
 
 
 		if (unlikely(numenq < (unsigned)(nb_rx - nb_loss + nb_dup))) {
-#ifdef DEBUG
-			port_statistics[portid].rx_worker_dropped += (nb_rx - nb_loss + nb_dup - numenq);
-			printf("Delayed Queue Overflow count:%" PRIu64 "\n",
-					port_statistics[portid].queue_dropped);
-#endif
+			RTE_LOG(WARNING, DEMU, "Delayed Queue Overflow count: %d\n",
+				(nb_rx - nb_loss + nb_dup) - numenq);
 			pktmbuf_free_bulk(&pkts_burst[numenq], nb_rx - nb_loss + nb_dup - numenq);
 		}
 	}
@@ -418,6 +406,7 @@ worker_thread(unsigned portid)
 	uint64_t diff_tsc;
 	int i;
 	unsigned lcore_id;
+	int status;
 
 	lcore_id = rte_lcore_id();
 	RTE_LOG(INFO, DEMU, "Entering main worker on lcore %u\n", lcore_id);
@@ -433,32 +422,33 @@ worker_thread(unsigned portid)
 			continue;
 
 		i = 0;
-		rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
 		while (i != burst_size) {
-			diff_tsc = rte_rdtsc() - burst_buffer[i]->udata64;
-
 			/* Add a given delay when a packet comes from the port 0.
 			 * FIXME: fix this implementation.
 			 */
 			if (portid == 0) {
-				uint16_t pkt_size_bit;
 
+				rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
+				diff_tsc = rte_rdtsc() - burst_buffer[i]->udata64;
 				if (diff_tsc < delayed_time)
 					continue;
 
-				rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
-				pkt_size_bit = burst_buffer[i]->pkt_len * 8;
-
 				if (limit_speed) {
+					uint16_t pkt_size_bit = burst_buffer[i]->pkt_len * 8;
+
 					if (amount_token >= pkt_size_bit)
 						amount_token -= pkt_size_bit;
 					else
 						continue;
 				}
-				rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
+				do {
+					status = rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
+				} while (status == -ENOBUFS);
 				i++;
 			} else {
-				rte_ring_sp_enqueue(workers_to_tx, burst_buffer[i]);
+				do {
+					status = rte_ring_sp_enqueue(workers_to_tx, burst_buffer[i]);
+				} while (status == -ENOBUFS);
 				i++; 
 			}
 		}
@@ -771,7 +761,7 @@ main(int argc, char **argv)
 
 	/* create the mbuf pool */
 	demu_pktmbuf_pool = rte_pktmbuf_pool_create("mbuf_pool",
-			DEMU_DELAYED_BUFFER_PKTS + DEMU_DELAYED_BUFFER_PKTS + DEMU_SEND_BUFFER_SIZE_PKTS + DEMU_SEND_BUFFER_SIZE_PKTS,
+			DEMU_DELAYED_BUFFER_PKTS * 2 + DEMU_SEND_BUFFER_SIZE_PKTS * 2,
 			MEMPOOL_CACHE_SIZE, 0, MEMPOOL_BUF_SIZE,
 			rte_socket_id());
 
@@ -873,22 +863,15 @@ main(int argc, char **argv)
 	}
 
 	for (portid = 0; portid < nb_ports; portid++) {
+		struct rte_eth_stats stats;
 		/* if ((demu_enabled_port_mask & (1 << portid)) == 0) */
 		/* 	continue; */
 		RTE_LOG(INFO, DEMU, "Closing port %d\n", portid);
+		rte_eth_stats_get(portid, &stats);
+		RTE_LOG(INFO, DEMU, "port %d: in pkt: %ld out pkt: %ld in missed: %ld in errors: %ld out errors: %ld\n",
+			portid, stats.ipackets, stats.opackets, stats.imissed, stats.ierrors, stats.oerrors);
 		rte_eth_dev_stop(portid);
 		rte_eth_dev_close(portid);
-
-#ifdef DEBUG
-		// saketa
-		printf("Stats[%d]. TX %8" PRIu64 " RX %8" PRIu64 " rx-workDrop %" PRIu64 " work-txDrop %" PRIu64 " TXdropped %" PRIu64 "\n",
-			portid,
-			port_statistics[portid].tx,
-			port_statistics[portid].rx,
-			port_statistics[portid].rx_worker_dropped,
-			port_statistics[portid].worker_tx_dropped,
-			port_statistics[portid].dropped);
-#endif
 	}
 
 
