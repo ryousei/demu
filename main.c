@@ -245,8 +245,8 @@ pktmbuf_free_bulk(struct rte_mbuf *mbuf_table[], unsigned n)
 		rte_pktmbuf_free(mbuf_table[i]);
 }
 
-static uint64_t amount_token = 0;
 static uint64_t limit_speed = 0;
+static uint64_t amount_token = 0; /* one token represents capacity of 1 Mbps. */
 static uint64_t sub_amount_token = 0;
 
 static void
@@ -296,8 +296,6 @@ demu_tx_loop(unsigned portid)
 	unsigned lcore_id;
 	uint32_t numdeq = 0;
 	uint16_t sent;
-	uint16_t pkt_size_bit;
-	bool send_flag = true;
 
 	lcore_id = rte_lcore_id();
 
@@ -315,23 +313,8 @@ demu_tx_loop(unsigned portid)
 		if (unlikely(numdeq == 0))
 			continue;
 
-		if (limit_speed && lcore_id == TX_THREAD_CORE) {
-			pkt_size_bit = send_buf[0]->pkt_len * 8;
-
-			if (amount_token >= pkt_size_bit) {
-				send_flag = true;
-				amount_token -= pkt_size_bit;
-			} else {
-				send_flag = false;
-			}
-		}
-
-		if (send_flag) {
-			rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
-			sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
-		} else {
-			sent = 0;
-		}
+		rte_prefetch0(rte_pktmbuf_mtod(send_buf[0], void *));
+		sent = rte_eth_tx_burst(portid, 0, send_buf, numdeq);
 
 #ifdef DEBUG_TX
 		if (tx_cnt < TX_STAT_BUF_SIZE) {
@@ -443,7 +426,6 @@ worker_thread(unsigned portid)
 
 	lcore_id = rte_lcore_id();
 	RTE_LOG(INFO, DEMU, "Entering main worker on lcore %u\n", lcore_id);
-	i = 0;
 
 	while (!force_quit) {
 		if (portid == 0)
@@ -454,8 +436,9 @@ worker_thread(unsigned portid)
 					(void *)burst_buffer, PKT_BURST_WORKER, NULL);
 		if (unlikely(burst_size == 0))
 			continue;
-		rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[0], void *));
+
 		i = 0;
+		rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
 		while (i != burst_size) {
 			diff_tsc = rte_rdtsc() - burst_buffer[i]->udata64;
 
@@ -463,11 +446,22 @@ worker_thread(unsigned portid)
 			 * FIXME: fix this implementation.
 			 */
 			if (portid == 0) {
-				if (diff_tsc >= delayed_time) {
-					rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
-					rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
-					i++;
+				uint16_t pkt_size_bit;
+
+				if (diff_tsc < delayed_time)
+					continue;
+
+				rte_prefetch0(rte_pktmbuf_mtod(burst_buffer[i], void *));
+				pkt_size_bit = burst_buffer[i]->pkt_len * 8;
+
+				if (limit_speed) {
+					if (amount_token >= pkt_size_bit)
+						amount_token -= pkt_size_bit;
+					else
+						continue;
 				}
+				rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
+				i++;
 			} else {
 				rte_ring_sp_enqueue(workers_to_tx, burst_buffer[i]);
 				i++; 
