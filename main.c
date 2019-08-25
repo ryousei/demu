@@ -400,6 +400,7 @@ demu_rx_loop(unsigned portid)
 }
 
 uint32_t rem_gap_len;
+struct rte_mbuf *gap_buffer[128000];
 
 static void
 worker_thread(unsigned portid)
@@ -440,15 +441,18 @@ worker_thread(unsigned portid)
 					struct rte_mbuf *pkt;
 					uint32_t gap_len;
 					uint32_t gap_pkt_len;
-					double max_speed = 10000000000.0;
+					int gi, sent;
 
-					gap_len = rem_gap_len + 
+					gi = 0;
+					gap_len = rem_gap_len +
 						  (double)burst_buffer[i]->data_len * ((max_speed / (double)limit_speed) - 1.0);
 
 					while (1) {
+						char *d;
+
 						if (1538 < gap_len) {
 							gap_pkt_len = 1538;
-						} else if (gap_len < 128) {
+						} else if (gap_len < 84) {
 							rem_gap_len = gap_len;
 							break;
 						} else {
@@ -457,13 +461,17 @@ worker_thread(unsigned portid)
 						pkt = rte_pktmbuf_alloc(demu_pktmbuf_pool);
 						if (pkt == NULL)
 							RTE_LOG(ERR, DEMU, "cannot alloc a gap packet\n");
-						pkt->pkt_len = gap_pkt_len - 20;
-						pkt->data_len = gap_pkt_len - 20;
+						d = rte_pktmbuf_append(pkt, gap_pkt_len - 20);
+						memset(d, 0x00, rte_pktmbuf_pkt_len(pkt));
 						pkt->ol_flags |= PKT_TX_NO_CRC_CSUM;
-						rte_ring_sp_enqueue(workers_to_tx2, pkt);
+						gap_buffer[gi++] = pkt;
 						gap_len -= gap_pkt_len;
 					}
-					rte_ring_sp_enqueue(workers_to_tx2, burst_buffer[i]);
+					sent = 0;
+					gap_buffer[gi++] = burst_buffer[i];
+					while (gi > sent) {
+						sent += rte_ring_sp_enqueue_burst(workers_to_tx2, (void *)(gap_buffer + sent), gi - sent, NULL);
+					}
 					i++;
 					continue;
 				}
