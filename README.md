@@ -132,16 +132,17 @@ Note: PCI device ID (e.g., 0000:01:00.0) depends on the hardware configuration.
 
 
 
-## Documents
+## Publications
 
 - Shuhei Aketa, Takahiro Hirofuchi, Ryousei Takano, "DEMU: A DPDK-based Network Latency Emulator," The 23rd IEEE International Symposium on Local and Metropolitan Area Networks, pp.1-6, June 2017. [[IEEE Explore](https://ieeexplore.ieee.org/document/7972145)]
-- Kanon Sasaki, Takahiro Hirofuchi, Saneyasu Yamaguchi, Ryousei Takano, "An Accurate Packet Loss Emulation on a DPDK-based Network Emulator," The 15th Asian Internet Engineering Conference, pp.1-8, August 2019. (To appear)
+- Kanon Sasaki, Takahiro Hirofuchi, Saneyasu Yamaguchi, Ryousei Takano, "An Accurate Packet Loss Emulation on a DPDK-based Network Emulator," The 15th Asian Internet Engineering Conference, pp.1-8, August 2019. [[ACM DL](https://dl.acm.org/citation.cfm?id=3343635)]
+- Chayapon Puakalong, Vasaka Visoottiviseth,  Ryousei Takano, Assadarat Khurat1, Wudichart Sawangphol, "Implementation of Bandwidth Emulation of DEMU," PRAGMA 37 Workshop (poster), September 2019. (To appear)
 
 
 ## Contributors
 
-- Shuhei AKETA, Ritsumeikan University
-- Kanon SASAKI, Kougakuin University
+- Shuhei Aketa, Ritsumeikan University
+- Kanon Sasaki, Kougakuin University
 - Chayapon Puakalong, Mahidol University
 - Takahiro Hirofuchi, AIST
 - Ryousei Takano, AIST
