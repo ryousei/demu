@@ -87,6 +87,7 @@ static bool loss_event_random(uint64_t loss_rate);
 static bool loss_event_GE(uint64_t loss_rate_n, uint64_t loss_rate_a, uint64_t st_ch_rate_no2ab, uint64_t st_ch_rate_ab2no);
 static bool loss_event_4state( uint64_t p13, uint64_t p14, uint64_t p23, uint64_t p31, uint64_t p32);
 static bool dup_event(void);
+static uint64_t uniform_distribution(uint64_t low, uint64_t right);
 #define RANDOM_MAX 1000000000
 
 static volatile bool force_quit;
@@ -161,6 +162,7 @@ struct rte_ring *rx_to_workers2;
 struct rte_ring *workers_to_tx;
 struct rte_ring *workers_to_tx2;
 
+static uint64_t delayed_val = 0; 
 static uint64_t delayed_time = 0; 
 
 enum demu_loss_mode {
@@ -220,7 +222,7 @@ static struct rte_eth_txconf tx_conf = {
 };
 
 /* #define DEBUG_RX */
-/* #define DEBUG_TX */
+/* #define DEBUG_TX */ 
 
 #ifdef DEBUG_RX
 #define RX_STAT_BUF_SIZE 3000000
@@ -268,6 +270,19 @@ tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((un
 	}
 }
 
+static void
+delay_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg)
+{
+	//dynamic latency switch latency from delayed_val and delayed_val/2 every 5s
+	// static unsigned counter = 0;
+	// if(((counter++) / 5) % 2 == 0)
+	// 	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * delayed_val;
+	// else
+	// 	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * delayed_val/2;
+
+	//dynamic latency changes latency by uniform distribution with 10% variances from delayed_time
+	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * uniform_distribution(delayed_val*0.9, delayed_val*1.1);
+}
 static void
 demu_timer_loop(void)
 {
@@ -408,8 +423,14 @@ worker_thread(unsigned portid)
 	unsigned lcore_id;
 	int status;
 
+	struct rte_timer timer;
+
 	lcore_id = rte_lcore_id();
 	RTE_LOG(INFO, DEMU, "Entering main worker on lcore %u\n", lcore_id);
+
+	uint64_t hz = rte_get_timer_hz();
+	rte_timer_init(&timer);
+	rte_timer_reset(&timer, hz, PERIODICAL, lcore_id, delay_timer_cb, NULL);
 
 	while (!force_quit) {
 		if (portid == 0)
@@ -451,6 +472,11 @@ worker_thread(unsigned portid)
 				} while (status == -ENOBUFS);
 				i++; 
 			}
+		}
+
+		/* Delay timer */
+		if(portid == 0){
+			rte_timer_manage();
 		}
 	}
 }
@@ -607,6 +633,9 @@ demu_parse_args(int argc, char **argv)
 					demu_usage(prgname);
 					return -1;
 				}
+				
+				/* Global variable for values */
+				delayed_val = val;
 				delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * val;
 				break;
 
@@ -1083,4 +1112,11 @@ dup_event(void)
 		return true;
 	else
 		return false;
+}
+
+static uint64_t uniform_distribution(uint64_t low, uint64_t high) {
+    double my_rand = rand()/(1.0 + RAND_MAX); 
+    int range = high - low + 1;
+    int my_rand_scaled = (my_rand * range) + low;
+    return my_rand_scaled;
 }
