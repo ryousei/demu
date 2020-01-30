@@ -129,9 +129,9 @@ struct demu_port_statistics port_statistics[RTE_MAX_ETHPORTS];
 #define RX_THREAD_CORE2 3
 #define TX_THREAD_CORE 4
 #define TX_THREAD_CORE2 5
-#define WORKER_THREAD_CORE 6
-#define WORKER_THREAD_CORE2 7
-#define TIMER_THREAD_CORE 8
+#define WORKER_THREAD_CORE 0
+#define WORKER_THREAD_CORE2 1
+#define TIMER_THREAD_CORE 1
 
 /*
  * The maximum number of packets which are processed in burst.
@@ -163,7 +163,8 @@ struct rte_ring *workers_to_tx;
 struct rte_ring *workers_to_tx2;
 
 static uint64_t delayed_val = 0; 
-static uint64_t delayed_time = 0; 
+static uint64_t delayed_time = 0;
+static uint64_t uniform_percent = 0;  
 
 enum demu_loss_mode {
 	LOSS_MODE_NONE,
@@ -281,7 +282,7 @@ delay_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__(
 	// 	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * delayed_val/2;
 
 	//dynamic latency changes latency by uniform distribution with 10% variances from delayed_time
-	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * uniform_distribution(delayed_val*0.9, delayed_val*1.1);
+	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * uniform_distribution(delayed_val*(100-uniform_percent)/100, delayed_val*(100+uniform_percent)/100);
 }
 static void
 demu_timer_loop(void)
@@ -611,7 +612,7 @@ demu_parse_args(int argc, char **argv)
 
 	argvopt = argv;
 
-	while ((opt = getopt_long(argc, argvopt, "d:g:p:r:s:D:",
+	while ((opt = getopt_long(argc, argvopt, "d:g:p:r:s:D:u:",
 					longopts, &longindex)) != EOF) {
 
 		switch (opt) {
@@ -683,6 +684,17 @@ demu_parse_args(int argc, char **argv)
 				limit_speed = val;
 				break;
 
+			/* uniform distrubution dynamic latency */
+			case 'u':
+				val = demu_parse_delayed(optarg);
+				if (val < 0) {
+					printf("Invalid value: uniform distribution percent\n");
+					demu_usage(prgname);
+					return -1;
+				}
+				
+				uniform_percent = val;
+				break;
 			/* long options */
 			case 0:
 				demu_usage(prgname);
