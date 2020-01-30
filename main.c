@@ -532,7 +532,7 @@ demu_parse_delayed(const char *q_arg)
 static int64_t
 demu_parse_speed(const char *arg)
 {
-	int64_t speed, base;
+	int64_t speed, base = 1;
 	char *end = NULL;
 
 	speed = strtoul(arg, &end, 10);
