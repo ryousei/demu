@@ -2,7 +2,7 @@
  *   BSD LICENSE
  *
  *   Copyright(c) 2010-2016 Intel Corporation. All rights reserved.
- *   Copyright(c) 2016-2019 National Institute of Advanced Industrial 
+ *   Copyright(c) 2016-2020 National Institute of Advanced Industrial
  *                Science and Technology. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
@@ -224,7 +224,7 @@ static struct rte_eth_txconf tx_conf = {
 };
 
 /* #define DEBUG_RX */
-/* #define DEBUG_TX */ 
+/* #define DEBUG_TX */
 
 #ifdef DEBUG_RX
 #define RX_STAT_BUF_SIZE 3000000
@@ -278,6 +278,7 @@ delay_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__(
 	//dynamic latency changes latency by normal distribution with delayed jitter as a standard deviation.
 	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * normal_distribution(delayed_time_in_us, delayed_jitter);
 }
+
 static void
 demu_timer_loop(void)
 {
@@ -291,14 +292,14 @@ demu_timer_loop(void)
 
 	RTE_LOG(INFO, DEMU, "Entering timer loop on lcore %u\n", lcore_id);
 	
-	if(limit_speed){
+	if (limit_speed) {
 		rte_timer_init(&timer);
 		rte_timer_reset(&timer, hz / 1000000, PERIODICAL, lcore_id, tx_timer_cb, NULL);
 
 		RTE_LOG(INFO, DEMU, "  Linit speed is %lu bps\n", limit_speed);
 	}
 	
-	if(delayed_jitter){
+	if (delayed_jitter) {
 		rte_timer_init(&delay_timer);
 		rte_timer_reset(&delay_timer, hz, PERIODICAL, lcore_id, delay_timer_cb, NULL);
 
@@ -622,7 +623,7 @@ demu_parse_args(int argc, char **argv)
 
 	argvopt = argv;
 
-	while ((opt = getopt_long(argc, argvopt, "d:g:p:r:s:D:j:",
+	while ((opt = getopt_long(argc, argvopt, "d:g:j:p:r:s:D:",
 					longopts, &longindex)) != EOF) {
 
 		switch (opt) {
@@ -645,9 +646,20 @@ demu_parse_args(int argc, char **argv)
 					return -1;
 				}
 				
-				/* Global variable for values */
 				delayed_time_in_us = val;
 				delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * val;
+				break;
+
+			/* delayed jitter */
+			case 'j':
+				val = demu_parse_jitter(optarg);
+				if (val < 0) {
+					printf("Invalid value: jitter\n");
+					demu_usage(prgname);
+					return -1;
+				}
+
+				delayed_jitter = val;
 				break;
 
 			/* random packet loss */
@@ -692,18 +704,6 @@ demu_parse_args(int argc, char **argv)
 					return -1;
 				}
 				limit_speed = val;
-				break;
-
-			/* delayed jitter */
-			case 'j':
-				val = demu_parse_jitter(optarg);
-				if (val < 0) {
-					printf("Invalid value: jitter\n");
-					demu_usage(prgname);
-					return -1;
-				}
-				
-				delayed_jitter = val;
 				break;
 
 			/* long options */
@@ -1140,10 +1140,10 @@ dup_event(void)
 static uint64_t normal_distribution(uint64_t mean, uint64_t stddev)
 {
     static double spare;
-    static int hasSpare = 0;
+    static int has_spare = 0;
 
-    if (hasSpare) {
-        hasSpare = 0;
+    if (has_spare) {
+        has_spare = 0;
         return spare * stddev + mean;
     } else {
         double u, v, s;
@@ -1154,7 +1154,7 @@ static uint64_t normal_distribution(uint64_t mean, uint64_t stddev)
         } while (s >= 1.0 || s == 0.0);
         s = sqrt(-2.0 * log(s) / s);
         spare = v * s;
-        hasSpare = 1;
+        has_spare = 1;
         return mean + stddev * u * s;
     }
 }

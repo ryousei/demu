@@ -1,6 +1,6 @@
 # DEMU （DPDK-based Network Emulator）
 
-Copyright (c) 2017-2019 National Institute of Advanced Industrial Science and Technology (AIST), Japan
+Copyright (c) 2017-2020 National Institute of Advanced Industrial Science and Technology (AIST), Japan
 
 ## Overview
 DEMU is a software-based network emulator implemented as a DPDK application. Conventional software-based emulator such as NetEm and dummynet have problems on the throughput of packet forwarding and the accuracy of emulation. DEMU addresses this problem by using a high-performance user-land network framework, i.e., DPDK, and it can emulate latencies on the order of 10ms for short-packet traffic at the 10GbE line rate with high accuracy. 
@@ -10,6 +10,7 @@ DEMU is released under the BSD-3-Clause license.
 ### Features
 
 - Accurate delay emulation in microseconds
+  - Jitter: normal distribution
 - Accurate packet loss emulation
   - Random loss
   - Burst loss based on the Gilbert-Elliott model
@@ -23,7 +24,7 @@ DEMU is released under the BSD-3-Clause license.
 
 - Ubuntu 18.04
 - Linux kernel 4.15.0
-- DPDK 17.11.3
+- DPDK 17.11.9
 
 ### Preparation
 
@@ -144,6 +145,7 @@ Note: PCI device ID (e.g., 0000:01:00.0) depends on the hardware configuration.
 - Shuhei Aketa, Ritsumeikan University
 - Kanon Sasaki, Kougakuin University
 - Chayapon Puakalong, Mahidol University
+- Wongsatorn Thongthavorn, Thammasat University
 - Takahiro Hirofuchi, AIST
 - Ryousei Takano, AIST
 
