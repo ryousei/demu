@@ -163,7 +163,7 @@ struct rte_ring *rx_to_workers2;
 struct rte_ring *workers_to_tx;
 struct rte_ring *workers_to_tx2;
 
-static uint64_t delayed_value = 0; 
+static uint64_t delayed_time_in_us = 0; 
 static uint64_t delayed_jitter = 0; 
 static uint64_t delayed_time = 0;
 
@@ -276,7 +276,7 @@ static void
 delay_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg)
 {
 	//dynamic latency changes latency by normal distribution with delayed jitter as a standard deviation.
-	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * normal_distribution(delayed_value, delayed_jitter);
+	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * normal_distribution(delayed_time_in_us, delayed_jitter);
 }
 static void
 demu_timer_loop(void)
@@ -302,7 +302,7 @@ demu_timer_loop(void)
 		rte_timer_init(&delay_timer);
 		rte_timer_reset(&delay_timer, hz, PERIODICAL, lcore_id, delay_timer_cb, NULL);
 
-		RTE_LOG(INFO, DEMU, "  Delayed time is %lu us with delay jitter %lu us\n", delayed_value, delayed_jitter);
+		RTE_LOG(INFO, DEMU, "  Delayed time is %lu us with delay jitter %lu us\n", delayed_time_in_us, delayed_jitter);
 	}
 
 
@@ -646,7 +646,7 @@ demu_parse_args(int argc, char **argv)
 				}
 				
 				/* Global variable for values */
-				delayed_value = val;
+				delayed_time_in_us = val;
 				delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * val;
 				break;
 
