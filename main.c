@@ -48,6 +48,7 @@
 #include <getopt.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <math.h>
 
 /*
  * RTE_LIBRTE_RING_DEBUG generates statistics of ring buffers. However, SEGV is occurred. (v16.07）
@@ -87,7 +88,7 @@ static bool loss_event_random(uint64_t loss_rate);
 static bool loss_event_GE(uint64_t loss_rate_n, uint64_t loss_rate_a, uint64_t st_ch_rate_no2ab, uint64_t st_ch_rate_ab2no);
 static bool loss_event_4state( uint64_t p13, uint64_t p14, uint64_t p23, uint64_t p31, uint64_t p32);
 static bool dup_event(void);
-static uint64_t uniform_distribution(uint64_t low, uint64_t right);
+static uint64_t normal_distribution(uint64_t mean, uint64_t stddev);
 #define RANDOM_MAX 1000000000
 
 static volatile bool force_quit;
@@ -162,8 +163,9 @@ struct rte_ring *rx_to_workers2;
 struct rte_ring *workers_to_tx;
 struct rte_ring *workers_to_tx2;
 
-static uint64_t delayed_val = 0; 
-static uint64_t delayed_time = 0; 
+static uint64_t delayed_value = 0; 
+static uint64_t delayed_jitter = 0; 
+static uint64_t delayed_time = 0;
 
 enum demu_loss_mode {
 	LOSS_MODE_NONE,
@@ -273,15 +275,8 @@ tx_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((un
 static void
 delay_timer_cb(__attribute__((unused)) struct rte_timer *tmpTime, __attribute__((unused)) void *arg)
 {
-	//dynamic latency switch latency from delayed_val and delayed_val/2 every 5s
-	// static unsigned counter = 0;
-	// if(((counter++) / 5) % 2 == 0)
-	// 	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * delayed_val;
-	// else
-	// 	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * delayed_val/2;
-
-	//dynamic latency changes latency by uniform distribution with 10% variances from delayed_time
-	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * uniform_distribution(delayed_val*0.9, delayed_val*1.1);
+	//dynamic latency changes latency by normal distribution with delayed jitter as a standard deviation.
+	delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * normal_distribution(delayed_value, delayed_jitter);
 }
 static void
 demu_timer_loop(void)
@@ -289,15 +284,27 @@ demu_timer_loop(void)
 	unsigned lcore_id;
 	uint64_t hz;
 	struct rte_timer timer;
+	struct rte_timer delay_timer;
 
 	lcore_id = rte_lcore_id();
 	hz = rte_get_timer_hz();
 
-	rte_timer_init(&timer);
-	rte_timer_reset(&timer, hz / 1000000, PERIODICAL, lcore_id, tx_timer_cb, NULL);
-
 	RTE_LOG(INFO, DEMU, "Entering timer loop on lcore %u\n", lcore_id);
-	RTE_LOG(INFO, DEMU, "  Linit speed is %lu bps\n", limit_speed);
+	
+	if(limit_speed){
+		rte_timer_init(&timer);
+		rte_timer_reset(&timer, hz / 1000000, PERIODICAL, lcore_id, tx_timer_cb, NULL);
+
+		RTE_LOG(INFO, DEMU, "  Linit speed is %lu bps\n", limit_speed);
+	}
+	
+	if(delayed_jitter){
+		rte_timer_init(&delay_timer);
+		rte_timer_reset(&delay_timer, hz, PERIODICAL, lcore_id, delay_timer_cb, NULL);
+
+		RTE_LOG(INFO, DEMU, "  Delayed time is %lu us with delay jitter %lu us\n", delayed_value, delayed_jitter);
+	}
+
 
 	while (!force_quit)
 		rte_timer_manage();
@@ -423,14 +430,8 @@ worker_thread(unsigned portid)
 	unsigned lcore_id;
 	int status;
 
-	struct rte_timer timer;
-
 	lcore_id = rte_lcore_id();
 	RTE_LOG(INFO, DEMU, "Entering main worker on lcore %u\n", lcore_id);
-
-	uint64_t hz = rte_get_timer_hz();
-	rte_timer_init(&timer);
-	rte_timer_reset(&timer, hz, PERIODICAL, lcore_id, delay_timer_cb, NULL);
 
 	while (!force_quit) {
 		if (portid == 0)
@@ -473,11 +474,6 @@ worker_thread(unsigned portid)
 				i++; 
 			}
 		}
-
-		/* Delay timer */
-		if(portid == 0){
-			rte_timer_manage();
-		}
 	}
 }
 
@@ -505,7 +501,7 @@ demu_launch_one_lcore(__attribute__((unused)) void *dummy)
 	else if (lcore_id == RX_THREAD_CORE2)
 		demu_rx_loop(0);
 
-	else if (limit_speed && lcore_id == TIMER_THREAD_CORE)
+	else if ((limit_speed || delayed_jitter) && lcore_id == TIMER_THREAD_CORE)
 		demu_timer_loop();
 
 	if (force_quit)
@@ -554,6 +550,21 @@ demu_parse_delayed(const char *q_arg)
 
 	return n;
 }
+
+static int
+demu_parse_jitter(const char *q_arg)
+{
+	char *end = NULL;
+	int n;
+
+	/* parse number string */
+	n = strtol(q_arg, &end, 10);
+	if ((q_arg[0] == '\0') || (end == NULL) || (*end != '\0'))
+		return -1;
+	
+	return n;
+}
+
 
 static int64_t
 demu_parse_speed(const char *arg)
@@ -611,7 +622,7 @@ demu_parse_args(int argc, char **argv)
 
 	argvopt = argv;
 
-	while ((opt = getopt_long(argc, argvopt, "d:g:p:r:s:D:",
+	while ((opt = getopt_long(argc, argvopt, "d:g:p:r:s:D:j:",
 					longopts, &longindex)) != EOF) {
 
 		switch (opt) {
@@ -635,7 +646,7 @@ demu_parse_args(int argc, char **argv)
 				}
 				
 				/* Global variable for values */
-				delayed_val = val;
+				delayed_value = val;
 				delayed_time = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * val;
 				break;
 
@@ -681,6 +692,18 @@ demu_parse_args(int argc, char **argv)
 					return -1;
 				}
 				limit_speed = val;
+				break;
+
+			/* delayed jitter */
+			case 'j':
+				val = demu_parse_jitter(optarg);
+				if (val < 0) {
+					printf("Invalid value: jitter\n");
+					demu_usage(prgname);
+					return -1;
+				}
+				
+				delayed_jitter = val;
 				break;
 
 			/* long options */
@@ -1114,9 +1137,24 @@ dup_event(void)
 		return false;
 }
 
-static uint64_t uniform_distribution(uint64_t low, uint64_t high) {
-    double my_rand = rand()/(1.0 + RAND_MAX); 
-    int range = high - low + 1;
-    int my_rand_scaled = (my_rand * range) + low;
-    return my_rand_scaled;
+static uint64_t normal_distribution(uint64_t mean, uint64_t stddev)
+{
+    static double spare;
+    static int hasSpare = 0;
+
+    if (hasSpare) {
+        hasSpare = 0;
+        return spare * stddev + mean;
+    } else {
+        double u, v, s;
+        do {
+            u = (rand() / ((double)RAND_MAX)) * 2.0 - 1.0;
+            v = (rand() / ((double)RAND_MAX)) * 2.0 - 1.0;
+            s = u * u + v * v;
+        } while (s >= 1.0 || s == 0.0);
+        s = sqrt(-2.0 * log(s) / s);
+        spare = v * s;
+        hasSpare = 1;
+        return mean + stddev * u * s;
+    }
 }
