@@ -1,0 +1,36 @@
+#!/bin/bash
+
+if (( $EUID != 0 )); then
+    echo "Please run as root"
+    exit
+fi
+
+if [ -z "$1" ]; then
+    echo "Network interface 1 not specified. Use enp1s0f0 as default."
+    nic1=enp1s0f0
+else
+    nic1=$1
+fi
+
+if [ -z "$2" ]; then
+    echo "Network interface 2 not specified. Use enp1s0f1 as default."
+    nic2=enp1s0f1
+else
+    nic2=$2
+fi
+
+export RTE_SDK='/usr/share/dpdk'
+
+echo 12000 > /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages  
+modprobe uio_pci_generic
+ifconfig $nic1 down
+ifconfig $nic2 down
+
+DEVBIND=$RTE_SDK/usertools/dpdk-devbind.py
+
+if ! test -f "$DEVBIND"; then
+    DEVBIND=/usr/bin/dpdk-devbind.py
+fi
+
+$DEVBIND --bind=uio_pci_generic $nic1
+$DEVBIND --bind=uio_pci_generic $nic2

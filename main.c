@@ -104,8 +104,11 @@ static uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
 static uint16_t nb_txd = RTE_TEST_TX_DESC_DEFAULT;
 
 /* ethernet addresses of ports */
-static struct ether_addr demu_ports_eth_addr[RTE_MAX_ETHPORTS];
-
+#if DPDK_VERSION > 18
+	static struct rte_ether_addr demu_ports_eth_addr[RTE_MAX_ETHPORTS];
+#else
+	static struct ether_addr demu_ports_eth_addr[RTE_MAX_ETHPORTS];
+#endif
 struct rte_mempool * demu_pktmbuf_pool = NULL;
 
 static uint32_t demu_enabled_port_mask = 0;
@@ -132,7 +135,7 @@ struct demu_port_statistics port_statistics[RTE_MAX_ETHPORTS];
 #define TX_THREAD_CORE2 5
 #define WORKER_THREAD_CORE 6
 #define WORKER_THREAD_CORE2 7
-#define TIMER_THREAD_CORE 8
+#define TIMER_THREAD_CORE 1
 
 /*
  * The maximum number of packets which are processed in burst.
@@ -151,7 +154,11 @@ struct demu_port_statistics port_statistics[RTE_MAX_ETHPORTS];
 #define DEMU_DELAYED_BUFFER_PKTS 8388608
 #define MEMPOOL_BUF_SIZE 1152
 #else
-#define DEMU_DELAYED_BUFFER_PKTS 4194304
+	#if DPDK_VERSION > 17
+		#define DEMU_DELAYED_BUFFER_PKTS 2097152
+	#else
+		#define DEMU_DELAYED_BUFFER_PKTS 4194304
+	#endif
 #define MEMPOOL_BUF_SIZE RTE_MBUF_DEFAULT_BUF_SIZE /* 2048 */
 #endif
 
@@ -185,11 +192,13 @@ static uint64_t dup_rate = 0;
 static const struct rte_eth_conf port_conf = {
 	.rxmode = {
 		.split_hdr_size = 0,
+		#if DPDK_VERSION <= 17
 		.header_split   = 0, /**< Header Split disabled */
 		.hw_ip_checksum = 0, /**< IP checksum offload disabled */
 		.hw_vlan_filter = 0, /**< VLAN filtering disabled */
 		.jumbo_frame    = 0, /**< Jumbo Frame Support disabled */
 		.hw_strip_crc   = 0, /**< CRC stripped by hardware */
+		#endif
 	},
 	.txmode = {
 		.mq_mode = ETH_MQ_TX_NONE,
@@ -215,11 +224,13 @@ static struct rte_eth_txconf tx_conf = {
 	},
 	.tx_rs_thresh = 32,               /**< Drives the setting of RS bit on TXDs. */
 	.tx_free_thresh = 32,             /**< Start freeing TX buffers if there are less free descriptors than this value. */
+	#if DPDK_VERSION <= 17
 	.txq_flags = (ETH_TXQ_FLAGS_NOMULTSEGS |
 			ETH_TXQ_FLAGS_NOVLANOFFL |
 			ETH_TXQ_FLAGS_NOXSUMSCTP |
 			ETH_TXQ_FLAGS_NOXSUMUDP |
 			ETH_TXQ_FLAGS_NOXSUMTCP),
+	#endif
 	.tx_deferred_start = 0,            /**< Do not start queue with rte_eth_dev_start(). */
 };
 
@@ -820,7 +831,12 @@ main(int argc, char **argv)
 	if (demu_pktmbuf_pool == NULL)
 		rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
 
-	nb_ports = rte_eth_dev_count();
+	#if DPDK_VERSION > 17
+		nb_ports = rte_eth_dev_count_avail();
+	#else
+		nb_ports = rte_eth_dev_count();
+	#endif
+
 	if (nb_ports == 0)
 		rte_exit(EXIT_FAILURE, "No Ethernet ports - bye\n");
 
