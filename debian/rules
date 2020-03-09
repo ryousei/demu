@@ -28,11 +28,9 @@ override_dh_auto_test:
 override_dh_auto_install:
 	make
 	mkdir -p debian/demu/usr/bin/
-	mv build debian/demu/usr/bin/demu-build
+	mv build/demu debian/demu/usr/bin/demu
 	cp demu-setup debian/demu/usr/bin/demu-setup
-	cp demu-cleanup debian/demu/usr/bin/demu-cleanup
-	cp demu debian/demu/usr/bin/demu
-	
+	cp demu-cleanup debian/demu/usr/bin/demu-cleanup	
 
 # dh_make generated override targets
 # This is example for Cmake (See https://bugs.debian.org/641051 )
