@@ -28,7 +28,7 @@ override_dh_auto_test:
 override_dh_auto_install:
 	make
 	mkdir -p debian/demu/usr/bin/
-	mv build/demu debian/demu/usr/bin/demu
+	cp build/demu debian/demu/usr/bin/demu
 	cp demu-setup debian/demu/usr/bin/demu-setup
 	cp demu-cleanup debian/demu/usr/bin/demu-cleanup	
 
