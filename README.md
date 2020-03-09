@@ -131,6 +131,22 @@ Note: PCI device ID (e.g., 0000:01:00.0) depends on the hardware configuration.
 - **Fixed port ID**: DEMU assumes a machine has two network interfaces (i.e., ports). Packets incomming from the port ID 0 are forwarded to the port ID 1, and vice versa. This pairing is fixed.
 - **Asymmetric delay setting**: DEMU only support one-way delay emulation.
 
+## Debian Packaging
+
+DEMU also support the Debian packaging. 
+Here's command to create the binary debian package. 
+
+```
+sudo debuild -uc -us
+```
+The result will get the binary debian package "demu_(version)_(arch).deb" .
+
+After installing the debian package, We can use 3 commands on /usr/bin directory.
+
+- demu-setup : The preparation part and usage part of DEMU. The input parameters are NICs name. The default parameter is enps010 and enps0f1 as shown on the GitHub page. These parameter also input the PCI number such as 01:00.0, 01:00.1, etc.
+- demu-cleanup : This command restores the normal Linux network configuration.
+- demu : This command calls the DEMU execution file at ./build/demu and able to use the same options from the this execution file.
+
 
 
 ## Publications

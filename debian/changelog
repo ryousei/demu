@@ -1,0 +1,5 @@
+demu (0.1.0-1) UNRELEASED; urgency=medium
+
+  * Initial debian package
+
+ -- Wongsatorn Thongthavorn <circle_ng@hotmail.com>  Mon, 4 Mar 2020 15:50:00 +0900
