@@ -1,7 +1,7 @@
 #   BSD LICENSE
 #
 #   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
-#   Copyright(c) 2016-2019 National Institute of Advanced Industrial 
+#   Copyright(c) 2016-2020 National Institute of Advanced Industrial 
 #                Science and Technology. All rights reserved.
 #
 #   Redistribution and use in source and binary forms, with or without

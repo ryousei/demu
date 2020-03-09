@@ -124,6 +124,22 @@ $ sudo $RTE_SDK/usertools/dpdk-devbind.py --bind=ixgbe 0000:01:00.1
 Note: PCI device ID (e.g., 0000:01:00.0) depends on the hardware configuration.
 
 
+## Debian GNU/Linux Package
+
+DEMU also supports the Debian packaging. 
+Here's command to create the binary Debian package. 
+
+```
+sudo debuild -uc -us
+```
+The result will get the binary debian package "demu_(version)_(arch).deb" .
+
+After installing the Debian package, We can use 3 commands on /usr/bin directory.
+
+- demu : The DEMU execution file.
+- demu-setup : The preparation part and usage part of DEMU. The input parameters are NICs name. The default parameter is enps010 and enps0f1 as shown on the GitHub page. These parameter also input the PCI number such as 01:00.0, 01:00.1, etc.
+- demu-cleanup : This command restores the normal Linux network configuration.
+
 
 ## Known Issues
 
@@ -131,29 +147,12 @@ Note: PCI device ID (e.g., 0000:01:00.0) depends on the hardware configuration.
 - **Fixed port ID**: DEMU assumes a machine has two network interfaces (i.e., ports). Packets incomming from the port ID 0 are forwarded to the port ID 1, and vice versa. This pairing is fixed.
 - **Asymmetric delay setting**: DEMU only support one-way delay emulation.
 
-## Debian Packaging
-
-DEMU also support the Debian packaging. 
-Here's command to create the binary debian package. 
-
-```
-sudo debuild -uc -us
-```
-The result will get the binary debian package "demu_(version)_(arch).deb" .
-
-After installing the debian package, We can use 3 commands on /usr/bin directory.
-
-- demu-setup : The preparation part and usage part of DEMU. The input parameters are NICs name. The default parameter is enps010 and enps0f1 as shown on the GitHub page. These parameter also input the PCI number such as 01:00.0, 01:00.1, etc.
-- demu-cleanup : This command restores the normal Linux network configuration.
-- demu : This command calls the DEMU execution file at ./build/demu and able to use the same options from the this execution file.
-
-
 
 ## Publications
 
 - Shuhei Aketa, Takahiro Hirofuchi, Ryousei Takano, "DEMU: A DPDK-based Network Latency Emulator," The 23rd IEEE International Symposium on Local and Metropolitan Area Networks, pp.1-6, June 2017. [[IEEE Explore](https://ieeexplore.ieee.org/document/7972145)]
 - Kanon Sasaki, Takahiro Hirofuchi, Saneyasu Yamaguchi, Ryousei Takano, "An Accurate Packet Loss Emulation on a DPDK-based Network Emulator," The 15th Asian Internet Engineering Conference, pp.1-8, August 2019. [[ACM DL](https://dl.acm.org/citation.cfm?id=3343635)]
-- Chayapon Puakalong, Ryousei Takano, Vasaka Visoottiviseth, Assadarat Khurat1, Wudichart Sawangphol, "A Network Bandwidth Limitation with the DEMU Network Emulator," The 10th IEEE Symposium on Computer Applications & Industrial Electronics, April 2020. (To appear)
+- Chayapon Puakalong, Ryousei Takano, Vasaka Visoottiviseth, Assadarat Khurat, Wudichart Sawangphol, "A Network Bandwidth Limitation with the DEMU Network Emulator," The 10th IEEE Symposium on Computer Applications & Industrial Electronics, April 2020. (To appear)
 
 
 ## Contributors
