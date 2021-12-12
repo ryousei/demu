@@ -10,10 +10,10 @@ DEMU is released under the BSD-3-Clause license.
 ### Features
 
 - Accurate delay emulation in microseconds
-  - Jitter: normal distribution
+    - Jitter: normal distribution
 - Accurate packet loss emulation
-  - Random loss
-  - Burst loss based on the Gilbert-Elliott model
+    - Random loss
+    - Burst loss based on the Gilbert-Elliott model
 - Packet duplication
 - Bandwidth limitation
 
@@ -21,10 +21,14 @@ DEMU is released under the BSD-3-Clause license.
 ## Getting Started
 
 ### Supported Environment
-
-- Ubuntu 18.04
-- Linux kernel 4.15.0
-- DPDK 17.11.9
+- Stable
+    - Ubuntu 18.04
+    - Linux kernel 4.15.0
+    - DPDK 17.11.9
+- Development
+    - Ubuntu 21.04
+    - Linux kernel 5.13.0
+    - DPDK 18.11.11
 
 ### Preparation
 
@@ -123,6 +127,45 @@ $ sudo $RTE_SDK/usertools/dpdk-devbind.py --bind=ixgbe 0000:01:00.1
 
 Note: PCI device ID (e.g., 0000:01:00.0) depends on the hardware configuration.
 
+
+## Test run on a single machine
+DPDK (DEMU) supports the veth interface, and it is convenient to test DEMU on your machine.
+Here we setup a simple network configuration as mentioned bellow.
+
+```
++--------+     +------------+     +--------+
+| sender |     |    DEMU    |     |receiver|
+|   veth0+-----+veth1  veth2+-----+veth3   |
+|        |     |            |     |        |
++--------+     +------------+     +--------+
+```
+
+```shell
+$ sudo ip link add veth0 type veth peer name veth1
+$ sudo ip link add veth2 type veth peer name veth3
+$ sudo ip netns add vnet0
+$ sudo ip netns add vnet1
+$ sudo ip link set veth0 netns vnet0
+$ sudo ip link set veth3 netns vnet1
+$ sudo ip -n vnet0 link set veth0 up
+$ sudo ip -n vnet1 link set veth3 up
+$ sudo ip link set veth1 up
+$ sudo ip link set veth2 up
+$ sudo ip -n vnet0 addr add 10.0.0.1/24 dev veth0
+$ sudo ip -n vnet1 addr add 10.0.0.2/24 dev veth3
+```
+
+When you run DEMU, you should add --vdev options to identify veth interfaces as follows.
+
+```shell
+$ sudo ./build/demu --vdev=net_af_packet0,iface=veth1 --vdev=net_af_packet1,iface=veth2 -c fc -n 4 -- -p 3 -d 2000
+```
+
+Now you can test it through ping command.
+
+```shell
+$ sudo ip netns exec vnet0 ping 10.0.0.2
+```
 
 ## Debian GNU/Linux Package
 

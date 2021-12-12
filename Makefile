@@ -1,7 +1,7 @@
 #   BSD LICENSE
 #
 #   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
-#   Copyright(c) 2016-2020 National Institute of Advanced Industrial 
+#   Copyright(c) 2016-2021 National Institute of Advanced Industrial 
 #                Science and Technology. All rights reserved.
 #
 #   Redistribution and use in source and binary forms, with or without
@@ -34,7 +34,7 @@
 APP = demu
 
 # all source are stored in SRCS-y
-SRCS-y := main.c -lm
+SRCS-y := main.c
 
 # auto find dpdk version 
 DPDK_VERSION = $(shell apt-cache policy dpdk-dev | grep Installed: | sed 's/.*://' | sed 's/\..*//' | sed 's/.*(//' | sed 's/).*//'  )

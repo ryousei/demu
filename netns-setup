@@ -1,0 +1,17 @@
+#!/bin/bash
+# setup a simple netns configuration
+# veth0 (vnet0, 10.0.0.1) <-> veth1 <- DEMU -> veth2 <-> veth3 (vnet1, 10.0.0.2)
+#
+
+sudo ip link add veth0 type veth peer name veth1
+sudo ip link add veth2 type veth peer name veth3
+sudo ip netns add vnet0
+sudo ip netns add vnet1
+sudo ip link set veth0 netns vnet0
+sudo ip link set veth3 netns vnet1
+sudo ip -n vnet0 link set veth0 up
+sudo ip -n vnet1 link set veth3 up
+sudo ip link set veth1 up
+sudo ip link set veth2 up
+sudo ip -n vnet0 addr add 10.0.0.1/24 dev veth0
+sudo ip -n vnet1 addr add 10.0.0.2/24 dev veth3

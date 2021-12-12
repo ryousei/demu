@@ -2,7 +2,7 @@
  *   BSD LICENSE
  *
  *   Copyright(c) 2010-2016 Intel Corporation. All rights reserved.
- *   Copyright(c) 2016-2020 National Institute of Advanced Industrial
+ *   Copyright(c) 2016-2021 National Institute of Advanced Industrial
  *                Science and Technology. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
@@ -146,7 +146,7 @@ struct demu_port_statistics port_statistics[RTE_MAX_ETHPORTS];
 #define PKT_BURST_WORKER 32
 
 /*
- * The default mempool size is not enough for bufferijng 64KB of short packets for 1 second.
+ * The default mempool size is not enough for buffering 64KB of short packets for 1 second.
  * SHORT_PACKET should be enabled in the case of short packet benchmarking.
  * #define SHORT_PACKET
  */
@@ -154,11 +154,7 @@ struct demu_port_statistics port_statistics[RTE_MAX_ETHPORTS];
 #define DEMU_DELAYED_BUFFER_PKTS 8388608
 #define MEMPOOL_BUF_SIZE 1152
 #else
-	#if DPDK_VERSION > 17
-		#define DEMU_DELAYED_BUFFER_PKTS 2097152
-	#else
-		#define DEMU_DELAYED_BUFFER_PKTS 4194304
-	#endif
+#define DEMU_DELAYED_BUFFER_PKTS 2097152
 #define MEMPOOL_BUF_SIZE RTE_MBUF_DEFAULT_BUF_SIZE /* 2048 */
 #endif
 
@@ -192,7 +188,7 @@ static uint64_t dup_rate = 0;
 static const struct rte_eth_conf port_conf = {
 	.rxmode = {
 		.split_hdr_size = 0,
-		#if DPDK_VERSION <= 17
+		#if DPDK_VERSION < 18
 		.header_split   = 0, /**< Header Split disabled */
 		.hw_ip_checksum = 0, /**< IP checksum offload disabled */
 		.hw_vlan_filter = 0, /**< VLAN filtering disabled */
@@ -224,7 +220,7 @@ static struct rte_eth_txconf tx_conf = {
 	},
 	.tx_rs_thresh = 32,               /**< Drives the setting of RS bit on TXDs. */
 	.tx_free_thresh = 32,             /**< Start freeing TX buffers if there are less free descriptors than this value. */
-	#if DPDK_VERSION <= 17
+	#if DPDK_VERSION < 18
 	.txq_flags = (ETH_TXQ_FLAGS_NOMULTSEGS |
 			ETH_TXQ_FLAGS_NOVLANOFFL |
 			ETH_TXQ_FLAGS_NOXSUMSCTP |
@@ -829,7 +825,7 @@ main(int argc, char **argv)
 			rte_socket_id());
 
 	if (demu_pktmbuf_pool == NULL)
-		rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
+		rte_exit(EXIT_FAILURE, "Cannot init mbuf pool: %s\n", rte_strerror(rte_errno));
 
 	#if DPDK_VERSION > 17
 		nb_ports = rte_eth_dev_count_avail();
