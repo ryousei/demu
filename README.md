@@ -1,6 +1,6 @@
 # DEMU （DPDK-based Network Emulator）
 
-Copyright (c) 2017-2020 National Institute of Advanced Industrial Science and Technology (AIST), Japan
+Copyright (c) 2017-2021 National Institute of Advanced Industrial Science and Technology (AIST), Japan
 
 ## Overview
 DEMU is a software-based network emulator implemented as a DPDK application. Conventional software-based emulator such as NetEm and dummynet have problems on the throughput of packet forwarding and the accuracy of emulation. DEMU addresses this problem by using a high-performance user-land network framework, i.e., DPDK, and it can emulate latencies on the order of 10ms for short-packet traffic at the 10GbE line rate with high accuracy. 
@@ -195,7 +195,7 @@ After installing the Debian package, We can use 3 commands on /usr/bin directory
 
 - Shuhei Aketa, Takahiro Hirofuchi, Ryousei Takano, "DEMU: A DPDK-based Network Latency Emulator," The 23rd IEEE International Symposium on Local and Metropolitan Area Networks, pp.1-6, June 2017. [[IEEE Explore](https://ieeexplore.ieee.org/document/7972145)]
 - Kanon Sasaki, Takahiro Hirofuchi, Saneyasu Yamaguchi, Ryousei Takano, "An Accurate Packet Loss Emulation on a DPDK-based Network Emulator," The 15th Asian Internet Engineering Conference, pp.1-8, August 2019. [[ACM DL](https://dl.acm.org/citation.cfm?id=3343635)]
-- Chayapon Puakalong, Ryousei Takano, Vasaka Visoottiviseth, Assadarat Khurat, Wudichart Sawangphol, "A Network Bandwidth Limitation with the DEMU Network Emulator," The 10th IEEE Symposium on Computer Applications & Industrial Electronics, April 2020. (To appear)
+- Chayapon Puakalong, Ryousei Takano, Vasaka Visoottiviseth, Assadarat Khurat, Wudichart Sawangphol, "A Network Bandwidth Limitation with the DEMU Network Emulator," The 10th IEEE Symposium on Computer Applications & Industrial Electronics, April 2020. 
 
 
 ## Contributors
